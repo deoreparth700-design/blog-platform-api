@@ -1,16 +1,19 @@
-from flask import Flask, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-app = Flask(__name__)
-CORS(app)
-app.json.sort_keys = False
+app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/health")
-def health():
-    return jsonify(
-        {
-            "status": "ok",
-            "message": "Blog Platform API is running",
-        }
-    ), 200
+def health_check():
+    return {
+        "status": "ok",
+        "message": "Blog Platform API is running"
+    }
