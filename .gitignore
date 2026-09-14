@@ -2,5 +2,7 @@ node_modules/
 .venv/
 venv/
 __pycache__/
+*.py[cod]
 .env
 coverage/
+.pytest_cache/
