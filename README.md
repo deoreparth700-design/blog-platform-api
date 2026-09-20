@@ -12,7 +12,7 @@ The project is being developed step by step to understand how a production-style
 | Neon PostgreSQL          | ✅ Completed            |
 | JWT Authentication       | ✅ Completed            |
 | Posts CRUD API           | ✅ Completed & Verified |
-| Comments API             | 🔜 Planned             |
+| Comments API             | ✅ Completed & Verified |
 | Likes API                | 🔜 Planned             |
 | Pagination               | 🔜 Planned             |
 | Redis Caching            | 🔜 Planned             |
@@ -109,16 +109,20 @@ blog-platform-api/
 │   │   └── auth.py
 │   │
 │   ├── repositories/
-│   │   └── post_repository.py
+│   │   ├── post_repository.py
+│   │   └── comment_repository.py
 │   │
 │   ├── routes/
-│   │   └── posts.py
+│   │   ├── posts.py
+│   │   └── comments.py
 │   │
 │   ├── schemas/
-│   │   └── post.py
+│   │   ├── post.py
+│   │   └── comment.py
 │   │
 │   ├── services/
-│   │   └── post_service.py
+│   │   ├── post_service.py
+│   │   └── comment_service.py
 │   │
 │   ├── utils/
 │   │   └── jwt_utils.py
@@ -165,7 +169,7 @@ userId
 
 The existing `get_current_user()` dependency handles authentication.
 
-The user's `userId` from the JWT is used as the `author_id` when creating posts.
+The user's `userId` from the JWT is used as the `author_id` when creating posts and comments.
 
 ---
 
@@ -185,100 +189,18 @@ The Posts API currently supports complete CRUD operations.
 
 ---
 
-## Create Post
+# 💬 Comments API
 
-```http
-POST /api/posts
-Authorization: Bearer <access_token>
-Content-Type: application/json
-```
+The Comments API currently supports complete CRUD operations.
 
-Request:
+## Endpoints
 
-```json
-{
-  "title": "My First Post",
-  "content": "This is my first blog post."
-}
-```
-
-Successful response:
-
-```http
-201 Created
-```
-
----
-
-## Get All Posts
-
-```http
-GET /api/posts
-```
-
-Returns the available posts ordered by:
-
-```text
-created_at DESC, id DESC
-```
-
----
-
-## Get a Single Post
-
-```http
-GET /api/posts/1
-```
-
-If the post does not exist:
-
-```http
-404 Not Found
-```
-
----
-
-## Update a Post
-
-```http
-PUT /api/posts/1
-Authorization: Bearer <access_token>
-Content-Type: application/json
-```
-
-Example:
-
-```json
-{
-  "title": "Updated Title",
-  "content": "Updated content."
-}
-```
-
-Only the post owner can update the post.
-
-A different authenticated user receives:
-
-```http
-403 Forbidden
-```
-
----
-
-## Delete a Post
-
-```http
-DELETE /api/posts/1
-Authorization: Bearer <access_token>
-```
-
-Successful deletion:
-
-```http
-204 No Content
-```
-
-Only the post owner can delete the post.
+| Method | Endpoint                            | Authentication | Description             |
+| ------ | ----------------------------------- | -------------- | ----------------------- |
+| POST   | `/api/posts/{post_id}/comments`     | ✅ Required     | Create a comment        |
+| GET    | `/api/posts/{post_id}/comments`     | ❌ Public       | Get comments for post   |
+| PUT    | `/api/comments/{comment_id}`        | ✅ Required     | Update your own comment |
+| DELETE | `/api/comments/{comment_id}`        | ✅ Required     | Delete your own comment |
 
 ---
 
@@ -317,6 +239,4 @@ user_id
 created_at
 ```
 
-The `comments` and `likes` tables are already part of the database schema but their APIs will be implemented in later steps.
-
-The project uses an **asyncpg connection pool** for async
+The project uses an **asyncpg connection pool** for asynchronous database operations.

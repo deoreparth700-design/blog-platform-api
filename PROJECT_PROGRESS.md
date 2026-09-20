@@ -1,88 +1,492 @@
-# Project Progress
+# Blog Platform API — Project Progress & Learning Record
 
-## Step 4: Posts API Implementation
+# 1. Project Objective
 
-### What was built
-We built a RESTful API for managing blog posts, fully integrating it into the existing FastAPI backend. The API handles complete CRUD (Create, Read, Update, Delete) functionality. Authentication is enforced on endpoints that mutate data, ensuring only valid users can create, update, or delete posts, and ownership rules guarantee that users can only modify their own posts. 
+The real objective of this project is to serve as a practical, comprehensive backend engineering learning vehicle—not just a collection of CRUD endpoints. 
 
-### Why `schemas/` was created
-In FastAPI, `pydantic` schemas are essential for data validation and serialization. We created a `schemas/` directory (specifically `src/schemas/post.py`) to define exactly what a valid request body looks like (e.g., `PostCreate` requiring `title` and `content`) and what the response payload should contain (`PostResponse`). This guarantees bad data is rejected automatically with a 422 error before it even reaches our application logic.
+The goal is to deeply understand how a full backend system operates from end to end:
 
-### Why controllers were not used
-While traditional MVC (Model-View-Controller) frameworks heavily rely on controllers, FastAPI applications often adopt a more streamlined architecture. We skipped a dedicated `controllers/` layer because our `routes` are designed to be thin, primarily handling HTTP concerns (like dependency injection and response formatting) while directly deferring all orchestration and business rules to the `services` layer. Adding controllers would have introduced unnecessary boilerplate without providing architectural benefit.
+Client
+→ HTTP request
+→ FastAPI
+→ Authentication
+→ Business Logic
+→ Database / Cache
+→ Response
 
-### Purpose of `routes/posts.py`
-This file acts as the entry point for all HTTP requests aimed at `/api/posts`. It registers the specific HTTP verbs (`GET`, `POST`, `PUT`, `DELETE`), defines response models, injects required dependencies (like `get_current_user` and `get_pool`), and maps the requests directly to the corresponding functions in `post_service.py`.
+This project is progressively introducing core backend concepts in a hands-on manner:
+- API development
+- database integration
+- authentication
+- authorization
+- relationships
+- pagination
+- caching
+- testing
+- performance
+- deployment
 
-### Purpose of `post_service.py`
-The service layer contains the application's business logic. Its job is to orchestrate operations. For example, before updating a post, the service fetches the existing post and applies the business rule checking whether the `author_id` matches the current `user_id`. If business rules fail, it raises HTTP exceptions (like 403 Forbidden). If they pass, it delegates data persistence to the repository.
+**Learning Philosophy:** We are building one real backend system step by step. This ensures that the developer understands precisely why each component exists, how the layers interact, and can confidently explain the complete system in a technical interview.
 
-### Purpose of `post_repository.py`
-The repository handles all direct database access. It encapsulates the SQL queries (`INSERT`, `SELECT`, `UPDATE`, `DELETE`) executed via `asyncpg`. It knows nothing about HTTP contexts or complex business validations—its only job is executing queries securely and mapping the database rows back into Python dictionaries.
+==================================================
 
-### CRUD operations
-The API supports full CRUD capabilities:
-- **C**reate: `POST /api/posts` inserts a new row into the PostgreSQL database.
-- **R**ead: `GET /api/posts` returns a list of posts, and `GET /api/posts/{post_id}` returns a single post.
-- **U**pdate: `PUT /api/posts/{post_id}` dynamically generates a SQL `UPDATE` statement based on which fields (`title`, `content`) are provided.
-- **D**elete: `DELETE /api/posts/{post_id}` removes the corresponding row.
+# 2. Project Architecture
 
-### Authentication flow
-Authentication is managed via JSON Web Tokens (JWT). For protected endpoints, the route requires `current_user: dict = Depends(get_current_user)`. FastAPI automatically intercepts the request, extracts the Bearer token from the `Authorization` header, and passes it to the `verify_jwt_token` function. If the token is valid and unexpired, the decoded user payload is passed to the route.
+The current backend architecture follows a strict, modular N-Tier layered design. 
 
-### Ownership/authorization flow
-Authentication verifies *who* the user is, but Authorization verifies *what they are allowed to do*. The ownership flow is enforced in the `post_service.py`. When an update or delete request arrives, the service extracts the `userId` from the JWT payload and converts it to a UUID. It then fetches the target post from the database and compares the `author_id` of the post with the current `user_uuid`. If they don't match, the operation is immediately halted and a `403 Forbidden` is returned.
+Client
+↓
+FastAPI Routes
+↓
+JWT Authentication (where required)
+↓
+Services
+↓
+Repositories
+↓
+PostgreSQL
 
-### Database interaction
-We interact with the Neon PostgreSQL database entirely asynchronously using `asyncpg`. The `get_pool()` dependency manages connection pooling, injecting a ready-to-use pool into the repository layer. The repository then uses `async with self.pool.acquire() as connection:` to check out a connection, executes parameterized queries (e.g., `WHERE id = $1`) to prevent SQL injection, and returns the result.
+### Why we use these specific layers:
 
-### Request → Route → Service → Repository → PostgreSQL flow
-1. **Client** sends `POST /api/posts` with JSON body and JWT.
-2. **FastAPI Route** catches it. Dependency injection runs `get_current_user`, yielding `user_id`. Pydantic validates the JSON payload into a `PostCreate` object.
-3. The Route calls the **Service** method `create_post(user_id, post_data)`.
-4. The Service validates the `user_id` as a valid UUID, then calls the **Repository** method `create_post`.
-5. The Repository checks out a connection from the pool and runs the `INSERT` SQL query with parameterized inputs against **PostgreSQL**.
-6. Data is returned up the chain, serialized, and sent back as a `201 Created` HTTP response.
+- **Routes (`src/routes/`)**: They are the entry points that handle HTTP concerns (parsing URLs, JSON bodies, checking dependencies). They stay "thin" and do not contain business logic.
+- **Schemas (`src/schemas/`)**: Using Pydantic, these models guarantee data correctness (validation) before it hits our application, instantly rejecting malformed JSON.
+- **Services (`src/services/`)**: The "brain" of the application. This layer holds the business rules, orchestrates authorization checks (like ownership verification), and coordinates operations before talking to the database.
+- **Repositories (`src/repositories/`)**: The database experts. They encapsulate all raw SQL and strictly handle `asyncpg` queries, knowing nothing about HTTP requests.
+- **Middleware (`src/middleware/`)**: Global interceptors, such as `auth.py`, which validates JWT tokens and extracts the identity of the user securely.
+- **Configuration (`src/config/`)**: Centralized setup logic, such as initializing the database connection pool.
+- **Utilities (`src/utils/`)**: Standalone helper functions like cryptographic token signing.
 
-### Important FastAPI concepts used
-- **Dependency Injection**: `Depends()` was heavily utilized to cleanly inject database pools and authentication payloads into route handlers without cluttering the code.
-- **`APIRouter`**: Used to group all post-related endpoints together in `src/routes/posts.py`, which is then attached to the main app in `src/app.py`.
-- **Response Models**: Utilizing `response_model=PostResponse` in route decorators guarantees that outgoing data conforms to our expected schema (and auto-generates documentation).
+### Why we did NOT create a controllers layer:
+In traditional MVC frameworks (like Spring or Laravel), controllers are heavily utilized. However, in FastAPI, the combination of `APIRouter` (routes) and dependency injection naturally handles what a controller normally does (request shaping and HTTP response formatting). By keeping routes thin and moving logic directly to `Services`, adding a separate `controllers` layer would only introduce unnecessary boilerplate without providing any real architectural benefit.
 
-### Important asyncpg concepts used
-- **Connection Pools**: Managed globally via `asyncpg.create_pool()` to efficiently handle high concurrency.
-- **`fetchrow()` and `fetch()`**: Used to execute queries that return a single row or multiple rows respectively.
-- **Parameterization (`$1`, `$2`)**: Prevents SQL injection by treating inputs strictly as literal values rather than executable code.
+*(Note: Redis caching is a planned future architectural layer and is not currently implemented).*
 
-### HTTP status codes used
-- `200 OK`: Successful GET and PUT requests.
-- `201 Created`: Successful POST request.
-- `204 No Content`: Successful DELETE request (the response has no body).
-- `401 Unauthorized`: Request missing a JWT or providing an invalid one.
-- `403 Forbidden`: User attempts to modify a post they do not own.
-- `404 Not Found`: Requesting a `post_id` that does not exist in the database.
-- `422 Unprocessable Entity`: Request body is missing required fields or violates Pydantic rules.
+==================================================
 
-### Tests performed
-An end-to-end Python test script was built to interact directly with the running server using `requests`. The tests covered:
-- Server Health Check (`GET /health`)
-- Retrieving all posts (`GET /api/posts`)
-- Handling invalid IDs (`GET /api/posts/9999999` -> 404)
-- Creating a post with a valid JWT (`POST /api/posts/`)
-- Retrieving the newly created post (`GET /api/posts/{id}`)
-- Updating the post (`PUT /api/posts/{id}`)
-- **Ownership Test**: Attempting to update and delete the post using a completely different user's JWT (`PUT/DELETE` -> 403 Forbidden)
-- Invalid JSON body structures (`POST` -> 422)
-- Missing Authorization headers (`POST` -> 401)
-- Deleting the post successfully as the owner (`DELETE` -> 204)
+# 3. Project Roadmap and Current Progress
 
-### Actual test results
-All tests passed successfully on the first comprehensive run.
-- Code 200 returned for `GET /health` and `GET /api/posts`.
-- Code 201 returned for `POST /api/posts`.
-- Code 403 returned exactly as expected when User 2 attempted to update/delete User 1's post.
-- Code 422 correctly caught a missing `title` and `content`.
-- Code 401 correctly caught unauthenticated POST attempts.
+| Step | Feature | Status |
+| ---- | ------- | ------ |
+| Step 1 | FastAPI Foundation | Completed |
+| Step 2 | Neon PostgreSQL Database | Completed |
+| Step 3 | JWT Authentication | Completed |
+| Step 4 | Posts API | Completed & Verified |
+| Step 5 | Comments API | Completed & Verified |
+| Step 6 | Likes API | Not Implemented |
+| Step 7 | Pagination | Not Implemented |
+| Step 8 | Redis Integration | Not Implemented |
+| Step 9 | Cache Invalidation + TTL | Not Implemented |
+| Step 10 | Automated Testing | Not Implemented |
+| Step 11 | Performance Measurement | Not Implemented |
+| Step 12 | Deployment | Not Implemented |
 
-### Any issue found and how it was fixed
-- **PYTHONPATH Resolution in Subprocesses**: While writing the automated end-to-end test script, launching the FastAPI server using `subprocess.Popen(["python", "src/server.py"])` initially failed with a `ModuleNotFoundError` for `src`. This was fixed by programmatically injecting `PYTHONPATH` pointing to the project root into the subprocess environment variables, allowing Python to resolve the local package paths correctly during testing.
+==================================================
+
+# 4. Completed Steps
+
+# Step 1 — FastAPI Foundation
+
+## Status
+Completed
+
+## Why We Needed This Step
+We needed a high-performance web server capable of handling asynchronous requests. The project initially started with a minimal Python/Flask health-check foundation. However, Flask is traditionally synchronous, which creates bottlenecks when thousands of requests wait on database I/O. We needed to evolve the project to a modern async framework to support the high concurrency expected of a blog platform.
+
+## What We Built
+We replaced Flask with FastAPI and established the core application structure. We set up Uvicorn as the ASGI server to run the application, configured CORS middleware to allow frontend clients to connect, and created a basic, unauthenticated `/health` endpoint for infrastructure monitoring.
+
+## Files Created / Modified
+- `src/app.py`
+- `src/server.py`
+- `requirements.txt`
+
+## Why We Chose This Technology / Approach
+FastAPI was chosen because it natively supports asynchronous Python (`async`/`await`), provides automatic request validation via Pydantic, and generates self-documenting APIs (Swagger UI). Uvicorn was selected as the ASGI web server because it is the standard, lightning-fast engine that translates incoming HTTP packets into Python async events.
+
+## How It Works
+Uvicorn listens on a port (e.g., 5000) for HTTP requests. When a request arrives, Uvicorn translates it into an ASGI event and passes it to the FastAPI application object defined in `src/app.py`. FastAPI then routes the event to the matching function decorator (like `@app.get("/health")`), executes the function, and serializes the returned Python dictionary back into a JSON HTTP response.
+
+## Request / Data Flow
+Client HTTP GET `/health`
+→ Uvicorn (ASGI server)
+→ FastAPI (`app.py`)
+→ `health_check()` function
+→ JSON Response `{"status": "ok"}`
+
+## Important Concepts Learned
+- **FastAPI Framework vs Application Server**: FastAPI defines the rules and routes; Uvicorn (the server) actually runs the network socket.
+- **ASGI**: Asynchronous Server Gateway Interface, the modern standard for async Python web servers.
+- **CORS**: Cross-Origin Resource Sharing, a security feature that dictates which external web domains can talk to our API.
+
+## Verification
+Started the application programmatically using `python src/server.py`.
+
+## Actual Result
+Navigating to `http://localhost:5000/health` successfully returned the `{"status": "ok"}` JSON payload.
+
+## What I Learned From This Step
+I learned how to bootstrap a modern Python web application, separating the server startup logic (`server.py`) from the application configuration (`app.py`), and the fundamental difference between synchronous (Flask) and asynchronous (FastAPI) web frameworks.
+
+==================================================
+
+# Step 2 — Neon PostgreSQL Database
+
+## Status
+Completed
+
+## Why We Needed This Step
+A blog platform contains highly relational, structured data (users, posts, comments, likes). We needed a robust, ACID-compliant database to persistently store this state and enforce relational integrity (e.g., ensuring a comment cannot exist without a valid post).
+
+## What We Built
+We integrated Neon (a serverless PostgreSQL provider). We implemented a connection pool management system using `asyncpg`, securely stored our credentials in a `.env` file via `DATABASE_URL`, and executed a SQL schema script to generate our foundational tables.
+
+## Files Created / Modified
+- `src/config/db.py`
+- `scripts/init_db.py`
+- `scripts/test_connection.py`
+- `src/db/schema.sql`
+- `.env`
+
+## Why We Chose This Technology / Approach
+PostgreSQL is the industry standard for relational databases. Neon was chosen because it separates storage and compute, allowing instant scaling for connection pooling without infrastructure management. `asyncpg` was chosen because it is an asyncio-native Postgres driver that is significantly faster than traditional ORMs and synchronous drivers, ensuring our FastAPI endpoints never block while waiting for SQL queries.
+
+## How It Works
+When the application starts, `src/config/db.py` creates a "pool" of open TCP connections to the Neon PostgreSQL database. When a route needs to run a query, it "checks out" a connection from the pool, runs the parameterized query asynchronously, and returns the connection to the pool. This completely avoids the massive overhead of establishing a new database connection for every single HTTP request.
+
+## Request / Data Flow
+FastAPI App Startup
+→ `asyncpg.create_pool(DATABASE_URL)`
+→ Pool maintains N open connections
+→ Application logic checks out connection
+→ Executes SQL
+→ Returns connection to pool
+
+## Important Concepts Learned
+- **Connection Pooling**: Reusing database connections for maximum performance under concurrent load.
+- **Parameterized SQL**: Using placeholders (`$1`, `$2`) to pass data to the database, explicitly separating executable code from user data to eliminate SQL injection vulnerabilities.
+- **Relational Tables**: `posts`, `comments`, and `likes`.
+- **Primary Keys**: Uniquely identifying rows (e.g., `id SERIAL PRIMARY KEY`).
+- **Composite Primary Keys**: Using multiple columns (e.g., `post_id, user_id` in the `likes` table) to guarantee uniqueness (a user can only like a post once).
+- **Foreign Keys and ON DELETE CASCADE**: Creating strict relationships (`comments.post_id REFERENCES posts(id)`), where deleting a parent row automatically forces the database engine to clean up child rows.
+- **Indexes**: Creating data structures (`idx_posts_created_at_id`) to make retrieving specific or sorted data blazingly fast.
+
+## Verification
+A custom test script (`test_connection.py`) was executed to connect to the Neon database and query `information_schema.tables` to verify table creation.
+
+## Actual Result
+The script successfully connected and returned `True` for the existence of the `posts` table, confirming the schema executed accurately in the cloud database.
+
+## What I Learned From This Step
+I learned that modern backend scale relies heavily on how database connections are managed. Directing every request to open its own connection will crash a database; connection pools act as the necessary throttle and cache for database connectivity.
+
+==================================================
+
+# Step 3 — JWT Authentication
+
+## Status
+Completed
+
+## Why We Needed This Step
+We need to know *who* is interacting with the API (Authentication) to ensure anonymous internet users cannot create, edit, or delete blog posts and comments.
+
+## What We Built
+We implemented stateless JSON Web Token (JWT) authentication. We created cryptographic utilities to decode and verify tokens, and a FastAPI middleware dependency (`get_current_user`) to intercept protected routes, parse the HTTP `Authorization` header, and securely extract the `userId`.
+
+## Files Created / Modified
+- `src/middleware/auth.py`
+- `src/utils/jwt_utils.py`
+- `src/app.py` (added `/api/auth-test`)
+
+## Why We Chose This Technology / Approach
+JWT was chosen because it is "stateless". Instead of querying the database to look up a session ID for every single HTTP request, the API can mathematically verify the user's identity by validating the cryptographic signature of the token in memory, dramatically reducing database load.
+
+## How It Works
+The server holds a secret (`JWT_ACCESS_SECRET`). When a request comes in, FastAPI's `HTTPBearer` extracts the `Bearer <token>` string. The `verify_jwt_token` function hashes the token payload using the `HS256` algorithm and the secret key. If the resulting signature matches the signature embedded in the token, the payload has not been tampered with. If the token is valid and not expired, the `userId` is extracted and passed to the route.
+
+## Request / Data Flow
+Client Request with `Authorization: Bearer <token>`
+→ Route triggers `Depends(get_current_user)`
+→ `HTTPBearer` extracts token string
+→ `jwt_utils` decodes using `HS256` + Secret
+→ Payload verified
+→ Extract `userId`
+→ Route executes with known user identity
+
+## Important Concepts Learned
+- **Authentication**: Verifying *who* you are (Is this JWT mathematically valid?).
+- **Authorization**: Verifying *what* you are allowed to do (we will use the extracted `userId` for this in future steps).
+- **Stateless Authentication**: Avoiding database session lookups.
+- **JWT Cryptography**: Understanding how symmetric signing (HS256) protects data integrity without encrypting the data itself.
+- **FastAPI Dependencies (`Depends`)**: A powerful injection system to run middleware (like auth checks) right before a specific route executes.
+
+## Verification
+A protected test endpoint `/api/auth-test` was created.
+
+## Actual Result
+Code review verified that `get_current_user()` correctly uses `HTTPBearer` and throws explicit 401 exceptions on missing or invalid tokens, successfully echoing the `userId` on success.
+
+## What I Learned From This Step
+I learned how to protect an API cryptographically and how FastAPI's dependency injection system makes it effortless to apply security gates to specific endpoints without polluting the business logic with header-parsing code.
+
+==================================================
+
+# Step 4 — Posts API
+
+## Status
+Completed & Verified
+
+## Why We Needed This Step
+We needed to expose HTTP endpoints to allow clients to Create, Read, Update, and Delete (CRUD) blog articles. We also needed to enforce strict authorization so that a user could only modify articles they explicitly owned.
+
+## What We Built
+We implemented the full Posts API utilizing our N-Tier architecture. We created Pydantic schemas for data validation (`PostCreate`, `PostUpdate`, `PostResponse`), a Repository layer (`PostRepository`) for raw PostgreSQL interactions, a Service layer (`PostService`) for business/ownership rules, and a Router (`posts.py`) to map HTTP verbs to the logic. 
+
+## Files Created / Modified
+- `src/schemas/post.py`
+- `src/repositories/post_repository.py`
+- `src/services/post_service.py`
+- `src/routes/posts.py`
+- `src/app.py` (mounted `posts_router`)
+
+## Why We Chose This Technology / Approach
+Separating the logic into Routes → Services → Repositories firmly decouples HTTP concerns from SQL logic. This makes the code highly testable and readable. Pydantic was leveraged because it catches malformed client data and returns a `422 Unprocessable Entity` error automatically before our application logic ever runs.
+
+## How It Works
+The `POST /api/posts` endpoint requires authentication. The route injects the authenticated `userId` and the Pydantic-validated `post_data`. The Service converts the `userId` to a UUID and calls the Repository. The Repository executes an `INSERT ... RETURNING` query via `asyncpg`.
+For `PUT` and `DELETE`, the Service first fetches the post, checks if `post.author_id == UUID(user_id)`. If they match, the repository performs the update/delete. If they don't, the Service halts execution and raises a `403 Forbidden` exception.
+
+## Request / Data Flow
+Client `PUT /api/posts/{id}` (with JWT)
+→ Route injects user identity & data payload
+→ Service fetches existing post via Repository
+→ Service checks `author_id == userId`
+→ If False: abort (403 Forbidden)
+→ If True: Repository executes SQL `UPDATE`
+→ PostgreSQL persists and returns new row
+→ Route serializes row via Pydantic `PostResponse`
+→ HTTP 200 OK
+
+## Important Concepts Learned
+- **UUIDs**: Using Universally Unique Identifiers to represent users system-wide.
+- **Authentication vs Authorization**: JWT proves *who* sent the request; the Service layer proves they are *allowed* to edit the post.
+- **HTTP Status Codes**: Using proper vocabulary (`201 Created`, `204 No Content`, `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, `422 Unprocessable Entity`).
+- **Dynamic SQL Updates**: Constructing safe parameterized queries in the repository when some update fields are optional.
+
+## Verification
+A comprehensive end-to-end Python test script was written using the `requests` library to test the live server.
+
+## Actual Result
+All tests passed.
+- `GET /health` and `GET /api/posts` returned 200.
+- Invalid IDs returned 404.
+- Creating a post returned 201.
+- Updating a post returned 200.
+- Ownership test: attempting to update/delete another user's post correctly returned 403.
+- Invalid payloads returned 422.
+- Missing tokens returned 401.
+
+## What I Learned From This Step
+I learned how to enforce authorization rules securely in a multi-tenant API. I also resolved a complex issue during testing where launching the server in a subprocess caused import errors; this was fixed by injecting the correct `PYTHONPATH` into the test script environment.
+
+==================================================
+
+# Step 5 — Comments API
+
+## Status
+Completed & Verified
+
+## Why We Needed This Step
+A blog is interactive. We needed a way for users to leave comments, which conceptually exist as a child resource to a specific blog post.
+
+## What We Built
+We implemented the Comments API, mirroring the architecture established in Step 4. We built `schemas/comment.py`, `repositories/comment_repository.py`, `services/comment_service.py`, and `routes/comments.py`. The API allows users to create comments on posts, retrieve all comments for a post, and strictly update/delete only their own comments.
+
+## Files Created / Modified
+- `src/schemas/comment.py`
+- `src/repositories/comment_repository.py`
+- `src/services/comment_service.py`
+- `src/routes/comments.py`
+- `src/app.py` (mounted `comments_router`)
+
+## Why We Chose This Technology / Approach
+We mounted the comments router at `/api` to cleanly map nested URLs (`/api/posts/{post_id}/comments`) without colliding with the existing Posts router. We utilized the database's existing `ON DELETE CASCADE` constraint on the `post_id` foreign key, meaning we did not have to write manual cleanup code—if a post is deleted, PostgreSQL automatically wipes out the associated comments.
+
+## How It Works
+When creating a comment via `POST /api/posts/{post_id}/comments`, the `CommentService` first explicitly asks the `PostRepository` if the post exists. If it doesn't, it cleanly returns a `404`. If it does, it passes the user's UUID and the comment content to the `CommentRepository` to execute the `INSERT`. When retrieving comments, the SQL query uses `ORDER BY created_at ASC, id ASC` to naturally sort the discussion from oldest to newest.
+
+## Request / Data Flow
+Client `POST /api/posts/1/comments` (with JWT)
+→ Route extracts `userId` and `CommentCreate` schema
+→ Service checks if post #1 exists (404 if not)
+→ Service validates user UUID
+→ Repository executes parameterized `INSERT`
+→ PostgreSQL persists and returns new comment row
+→ Route serializes via `CommentResponse` (HTTP 201)
+
+## Important Concepts Learned
+- **Child Resources**: Modeling URLs to represent nested relationships (`/parent/{id}/child`).
+- **Post-Existence Validation**: The importance of verifying foreign key targets exist before attempting inserts, resulting in clean API errors (404) rather than raw database crash logs.
+- **ON DELETE CASCADE**: Utilizing relational database engine features to handle data lifecycle cleanup automatically.
+
+## Verification
+A 13-point end-to-end Python test script was written and executed against a live instance. It validated:
+1. Health check.
+2. Fetch comments for a valid post.
+3. Fetch comments for an invalid post (404).
+4. Create comment (201).
+5. Fetch comments includes the new comment.
+6. Owner update (200).
+7. Non-owner update rejection (403).
+8. Non-owner delete rejection (403).
+9. Owner delete (204).
+10. Missing JWT (401).
+11. Invalid schema body (422).
+12. Modify nonexistent comment (404).
+13. Create comment on nonexistent post (404).
+
+## Actual Result
+All 13 integration scenarios executed perfectly and passed verification.
+
+## What I Learned From This Step
+I learned the best practice of layering validations (Check Post exists → Check Comment exists → Check Ownership) inside the Service layer. I also experienced how strict architectural patterns established in Step 4 make implementing new features (Step 5) highly predictable and rapid.
+
+==================================================
+
+# 5. Current Backend Architecture
+
+As of Step 5, this is the functional, implemented backend system:
+
+```text
+Client
+↓
+FastAPI
+├── Public routes (GET posts, GET comments, /health)
+└── Protected routes (POST/PUT/DELETE via HTTPBearer)
+↓
+JWT Authentication (intercepts and extracts userId)
+↓
+Services (PostService, CommentService enforce business/ownership rules)
+↓
+Repositories (PostRepository, CommentRepository)
+↓
+Neon PostgreSQL (async connection pool)
+```
+
+**Currently Active Resources:**
+- **Posts**: Full CRUD, protected mutations.
+- **Comments**: Full CRUD, child to posts, protected mutations.
+*(Note: Likes exist as a database table but the API layer is not yet implemented).*
+
+==================================================
+
+# 6. Current Project Structure
+
+The repository structure reflecting the current architecture:
+
+```text
+c:\Users\deore\projects\blog-platform-api\
+├── .env                  # Environment variables & secrets (NOT in source control)
+├── PROJECT_PROGRESS.md   # This master documentation file
+├── README.md             # Project summary and API endpoint lists
+├── requirements.txt      # Python package dependencies
+├── scripts/
+│   ├── init_db.py        # Database schema initialization script
+│   └── test_connection.py# Database connectivity test script
+└── src/
+    ├── app.py            # FastAPI application instance and router mounting
+    ├── server.py         # Uvicorn entry point
+    ├── config/
+    │   └── db.py         # asyncpg connection pool logic
+    ├── controllers/
+    │   └── .gitkeep      # (Intentionally unused to adhere to thin-route architecture)
+    ├── db/
+    │   └── schema.sql    # Raw PostgreSQL schema definitions
+    ├── middleware/
+    │   └── auth.py       # JWT extraction and Depends(get_current_user)
+    ├── repositories/
+    │   ├── post_repository.py
+    │   └── comment_repository.py
+    ├── routes/
+    │   ├── posts.py
+    │   └── comments.py
+    ├── schemas/
+    │   ├── post.py       # Pydantic validation models
+    │   └── comment.py
+    ├── services/
+    │   ├── post_service.py
+    │   └── comment_service.py
+    └── utils/
+        └── jwt_utils.py  # Cryptographic token decoding
+```
+
+==================================================
+
+# 7. Backend Concepts Learned So Far
+
+- **REST API**: Representational State Transfer. A standard for structuring network endpoints using HTTP nouns and verbs.
+- **HTTP methods**: Semantic verbs for actions: GET (read), POST (create), PUT (update), DELETE (remove).
+- **FastAPI**: A modern Python framework that parses HTTP requests quickly and natively supports asynchronous execution.
+- **Uvicorn**: An ASGI server that translates raw TCP socket HTTP traffic into Python events for FastAPI.
+- **ASGI**: Asynchronous Server Gateway Interface. The protocol that allows Python web servers to process multiple requests concurrently without blocking.
+- **Dependency Injection**: FastAPI's `Depends()` allows routes to dynamically require logic (like database pools or authentication) to run before the route executes, keeping code DRY.
+- **APIRouter**: A tool to modularize and organize related endpoints (like `/posts`) into separate files before attaching them to the main app.
+- **Pydantic**: A data validation library that ensures JSON request bodies match strict Python schemas, rejecting bad data automatically.
+- **JWT**: JSON Web Tokens. A cryptographic standard for stateless user authentication.
+- **Authentication**: The act of validating *who* a user is (checking the JWT signature).
+- **Authorization**: The act of validating *what* a user can do (checking if `userId` matches `author_id`).
+- **PostgreSQL**: A powerful, open-source relational database engine.
+- **Relational tables**: Storing data in grids of columns and rows that relate to one another.
+- **Primary keys**: A unique identifier for a row (`id`).
+- **Foreign keys**: A column linking to a primary key in another table (`post_id`).
+- **Composite primary keys**: Using two columns together to enforce uniqueness (e.g., `post_id` + `user_id` in the likes table).
+- **ON DELETE CASCADE**: A database rule that automatically deletes child rows (comments) when a parent row (post) is deleted.
+- **Indexes**: Database structures that make sorting and searching specific columns extremely fast.
+- **Async programming**: Using `async`/`await` in Python so the CPU can handle other web requests while waiting for network/database responses.
+- **Connection pooling**: Maintaining a cache of open database connections to handle thousands of requests without the overhead of establishing new TCP connections.
+- **asyncpg**: The fastest asyncio driver for communicating with PostgreSQL in Python.
+- **Parameterized SQL**: Passing variables to queries using `$1`, `$2` to completely eliminate SQL injection attacks.
+- **CRUD**: Create, Read, Update, Delete. The four fundamental operations of persistent storage.
+- **UUIDs**: Universally Unique Identifiers. 128-bit identifiers used for decentralized, non-guessable user IDs.
+- **HTTP status codes**: Standardized response numbers. (e.g., 200 OK, 201 Created, 204 No Content, 401 Unauthorized, 403 Forbidden, 404 Not Found, 422 Unprocessable Entity).
+- **Layered architecture**: Decoupling logic into thin Routes, orchestrating Services, and dedicated Repositories to create a maintainable, testable codebase.
+
+==================================================
+
+# 8. Interview Understanding
+
+Based on the implementation up to Step 5, a developer should be able to articulate:
+
+- **What the project does**: It is a high-concurrency RESTful API for a blog platform, handling users, posts, and comments securely via JWT authentication.
+- **Current architecture**: It uses an N-Tier architecture where HTTP requests hit FastAPI Routes, undergo JWT validation middleware, route to Services for business logic (like ownership checks), and pass down to Repositories for raw SQL execution.
+- **Why FastAPI**: Selected over Flask because its native async support drastically increases throughput for database-heavy APIs, and Pydantic provides free data validation.
+- **Why PostgreSQL/Neon**: Relational data requires strict integrity (like cascading deletes). Neon was chosen for serverless connection pooling capabilities.
+- **How authentication works**: Clients send an `Authorization: Bearer` token. A FastAPI dependency intercepts the request, uses `PyJWT` with a symmetric secret (`HS256`) to mathematically prove the token was issued by us, and extracts the `userId`.
+- **How authorization works**: Inside the Service layer, the target resource (Post or Comment) is fetched. The system compares the resource's `author_id` to the authenticated JWT `userId`. If they mismatch, the service returns a `403 Forbidden`.
+- **How Posts work**: Posts are the primary resource, managed via full CRUD endpoints utilizing Pydantic schemas for data shaping and parameterized `INSERT`/`UPDATE` SQL queries.
+- **How Comments work**: Comments are child resources mapped to Posts via a foreign key. The API checks for post existence before creating comments and relies on PostgreSQL's `ON DELETE CASCADE` to clean them up if the parent post is removed.
+- **How Route → Service → Repository works**: Routes handle HTTP parsing. Services handle rules (auth, existence checks). Repositories handle SQL. This prevents massive spaghetti functions and makes testing isolation possible.
+- **How the database is accessed asynchronously**: A global `asyncpg` connection pool is initialized at startup. Repositories asynchronously `acquire()` a connection, await the SQL execution, and release it back to the pool without blocking the main Python thread.
+
+==================================================
+
+# 9. Future Roadmap
+
+| Step | Feature | Status |
+|------|---------|--------|
+| Step 6 | Likes API | Not Implemented |
+| Step 7 | Pagination | Not Implemented |
+| Step 8 | Redis Integration | Not Implemented |
+| Step 9 | Cache Invalidation + TTL | Not Implemented |
+| Step 10 | Automated Testing | Not Implemented |
+| Step 11 | Performance Measurement | Not Implemented |
+| Step 12 | Deployment | Not Implemented |
+
+==================================================
+
+# 10. Development Log
+
+- **Step 1**: Created the foundational server structure. Transitioned from synchronous Flask to asynchronous FastAPI + Uvicorn to support high concurrency. Verified via `/health` endpoint. Learned the ASGI request lifecycle.
+- **Step 2**: Integrated Neon PostgreSQL. Set up `asyncpg` connection pooling and executed table schema creation. Verified via a custom information schema test script. Learned why connection pools are mandatory for backend scale.
+- **Step 3**: Integrated JWT authentication. Built middleware to extract and validate Bearer tokens. Verified via a protected `/api/auth-test` echo endpoint. Learned how stateless cryptography reduces database load.
+- **Step 4**: Implemented Posts API. Built the core layered architecture (Routes/Services/Repositories) for full CRUD operations. Enforced ownership authorization. Verified via comprehensive custom Python E2E script. Learned how to firmly decouple SQL logic from HTTP routing.
+- **Step 5**: Implemented Comments API. Handled nested child-resource logic and pre-validation (verifying post existence). Maintained strict ownership checks. Verified via a 13-point E2E Python script testing business logic and error propagation (403, 404, 422). Learned how to leverage database foreign-key constraints (ON DELETE CASCADE) to minimize application code.
