@@ -13,8 +13,8 @@ The project is being developed step by step to understand how a production-style
 | JWT Authentication       | ✅ Completed            |
 | Posts CRUD API           | ✅ Completed & Verified |
 | Comments API             | ✅ Completed & Verified |
-| Likes API                | 🔜 Planned             |
-| Pagination               | 🔜 Planned             |
+| Likes API                | ✅ Completed & Verified |
+| Pagination               | ✅ Completed & Verified |
 | Redis Caching            | 🔜 Planned             |
 | Cache Invalidation + TTL | 🔜 Planned             |
 | Automated Testing        | 🔜 Planned             |
@@ -110,19 +110,23 @@ blog-platform-api/
 │   │
 │   ├── repositories/
 │   │   ├── post_repository.py
-│   │   └── comment_repository.py
+│   │   ├── comment_repository.py
+│   │   └── like_repository.py
 │   │
 │   ├── routes/
 │   │   ├── posts.py
-│   │   └── comments.py
+│   │   ├── comments.py
+│   │   └── likes.py
 │   │
 │   ├── schemas/
 │   │   ├── post.py
-│   │   └── comment.py
+│   │   ├── comment.py
+│   │   └── like.py
 │   │
 │   ├── services/
 │   │   ├── post_service.py
-│   │   └── comment_service.py
+│   │   ├── comment_service.py
+│   │   └── like_service.py
 │   │
 │   ├── utils/
 │   │   └── jwt_utils.py
@@ -179,13 +183,19 @@ The Posts API currently supports complete CRUD operations.
 
 ## Endpoints
 
-| Method | Endpoint               | Authentication | Description          |
-| ------ | ---------------------- | -------------- | -------------------- |
-| POST   | `/api/posts`           | ✅ Required     | Create a post        |
-| GET    | `/api/posts`           | ❌ Public       | Get all posts        |
-| GET    | `/api/posts/{post_id}` | ❌ Public       | Get a single post    |
-| PUT    | `/api/posts/{post_id}` | ✅ Required     | Update your own post |
-| DELETE | `/api/posts/{post_id}` | ✅ Required     | Delete your own post |
+| Method | Endpoint                            | Authentication | Description          |
+| ------ | ----------------------------------- | -------------- | -------------------- |
+| POST   | `/api/posts`                        | ✅ Required     | Create a post        |
+| GET    | `/api/posts?page=1&limit=10`        | ❌ Public       | Get all posts (paginated) |
+| GET    | `/api/posts/{post_id}`              | ❌ Public       | Get a single post    |
+| PUT    | `/api/posts/{post_id}`              | ✅ Required     | Update your own post |
+| DELETE | `/api/posts/{post_id}`              | ✅ Required     | Delete your own post |
+
+**Pagination Details:**
+The `GET /api/posts` endpoint accepts `page` and `limit` query parameters.
+- **page**: The page number to retrieve (default: 1)
+- **limit**: The number of items per page (default: 10, max: 100)
+- **Ordering**: Posts are returned in deterministic newest-first ordering (`created_at DESC, id DESC`).
 
 ---
 
@@ -201,6 +211,20 @@ The Comments API currently supports complete CRUD operations.
 | GET    | `/api/posts/{post_id}/comments`     | ❌ Public       | Get comments for post   |
 | PUT    | `/api/comments/{comment_id}`        | ✅ Required     | Update your own comment |
 | DELETE | `/api/comments/{comment_id}`        | ✅ Required     | Delete your own comment |
+
+---
+
+# ❤️ Likes API
+
+The Likes API allows users to like posts and retrieve like counts.
+
+## Endpoints
+
+| Method | Endpoint                            | Authentication | Description             |
+| ------ | ----------------------------------- | -------------- | ----------------------- |
+| POST   | `/api/posts/{post_id}/like`         | ✅ Required     | Like a post             |
+| DELETE | `/api/posts/{post_id}/like`         | ✅ Required     | Unlike a post           |
+| GET    | `/api/posts/{post_id}/likes`        | ❌ Public       | Get like count          |
 
 ---
 

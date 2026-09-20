@@ -72,8 +72,8 @@ In traditional MVC frameworks (like Spring or Laravel), controllers are heavily 
 | Step 3 | JWT Authentication | Completed |
 | Step 4 | Posts API | Completed & Verified |
 | Step 5 | Comments API | Completed & Verified |
-| Step 6 | Likes API | Not Implemented |
-| Step 7 | Pagination | Not Implemented |
+| Step 6 | Likes API | Completed & Verified |
+| Step 7 | Pagination | Completed & Verified |
 | Step 8 | Redis Integration | Not Implemented |
 | Step 9 | Cache Invalidation + TTL | Not Implemented |
 | Step 10 | Automated Testing | Not Implemented |
@@ -352,30 +352,203 @@ I learned the best practice of layering validations (Check Post exists → Check
 
 ==================================================
 
+# Step 6 — Likes API
+
+## Status
+Completed & Verified
+
+## Why We Needed This Step
+Users need the ability to "like" a post. Unlike Posts (which are independent) and Comments (which are one-to-many), Likes represent a pure many-to-many relationship where one user can like many posts, and one post can be liked by many users, but a user can only like a specific post once.
+
+## What We Built
+We implemented the Likes API. We built a schema for returning like counts (`LikeCountResponse`), a repository (`LikeRepository`) to handle duplicate-safe inserts and aggregate queries, a service (`LikeService`) to enforce post existence and duplicate-like rejection, and routes (`likes.py`) to expose `POST` and `DELETE` endpoints.
+
+## Files Created / Modified
+- `src/schemas/like.py`
+- `src/repositories/like_repository.py`
+- `src/services/like_service.py`
+- `src/routes/likes.py`
+- `src/app.py`
+
+## Why We Chose This Design
+We continued to use the N-Tier layered architecture without a controllers layer to keep the codebase consistent and thin at the HTTP boundary. 
+The database uses a pure junction table (`likes`) without a surrogate `id` column. Because a like is uniquely identified by the combination of `post_id` and `user_id`, we rely on a **composite primary key**. A local users table is not needed because we extract the globally unique `userId` from the JWT directly.
+
+## How It Works
+When a user likes a post, the `LikeService` first verifies that the post exists via the `PostRepository`. Then it checks the `LikeRepository` to see if a like from this user on this post already exists. If so, it cleanly rejects it with a `409 Conflict`. If not, it executes an `INSERT`. To get the like count, the repository runs an aggregate `SELECT COUNT(*) FROM likes WHERE post_id = $1`. When a user unlikes a post, the `LikeService` ensures the like exists before issuing a `DELETE` explicitly bound to the `user_id`, ensuring a user can never delete another user's like.
+
+## Many-to-Many Relationship
+```text
+          ┌──────────┐
+          │  User A  │
+          └────┬─────┘
+               │
+               │
+             likes
+               │
+          ┌────┴─────┐
+          │          │
+       Post 1     Post 2
+          ▲          ▲
+          │          │
+         User B     User C
+```
+The `likes` table acts as a junction or relationship table bridging the stateless user (from the JWT) and the `posts` table.
+
+## Composite Primary Key
+```sql
+PRIMARY KEY (post_id, user_id)
+```
+A single `id` column is completely unnecessary here because the relationship itself is unique. By defining `(post_id, user_id)` as the composite primary key, the PostgreSQL engine natively enforces that the same user cannot insert a second like for the same post. 
+
+## Duplicate Like Handling
+The API handles duplication gracefully in the service layer by first checking if the like exists and returning a `409 Conflict`. If a race condition bypasses the service layer check, the database's composite primary key constraint will throw a hard exception, acting as an absolute last line of defense against duplicate data. If a user tries to unlike a post that isn't liked, the API cleanly returns a `404 Not Found`.
+
+## Request / Data Flow
+Client `POST /api/posts/1/like`
+→ Route extracts `userId` from JWT
+→ Service verifies post exists
+→ Service checks if like already exists (returns 409 if true)
+→ Repository executes `INSERT INTO likes (post_id, user_id)`
+→ PostgreSQL persists the junction row
+→ Route returns `201 Created`
+
+## Important Concepts Learned
+- **Many-to-Many Relationships**: Understanding junction tables and how they bridge entities.
+- **Composite Primary Keys**: Enforcing uniqueness across two columns instead of using a standalone `id`.
+- **Aggregate Queries**: Using `COUNT(*)` in SQL to aggregate data.
+- **Idempotency and Duplicate Handling**: Returning correct HTTP semantics (like `409 Conflict`) when attempting to recreate an existing unique resource.
+
+## Verification
+A 15-point end-to-end Python test script was written and executed against a live instance. It validated duplicate handling, successful deletes, unauthenticated responses, and non-existent resource behavior across the entire API boundary.
+
+## Actual Result
+All 15 integration scenarios executed perfectly and passed verification. The database composite key and service-level duplicate checks functioned exactly as intended.
+
+## What I Learned From This Step
+I learned how to manage pure relationship tables in SQL using composite primary keys and how to surface safe, predictable duplicate-handling behavior (409 Conflict) through a REST API.
+
+==================================================
+
+# Step 7 — Pagination
+
+## Status
+Completed & Verified
+
+## Why We Needed This Step
+As the blog platform grows, returning every post from the database in a single HTTP request becomes increasingly inefficient, consuming massive amounts of bandwidth and memory. We needed a way to fetch posts in manageable chunks (pages) so clients can sequentially load data as needed.
+
+## What We Built
+We converted the existing `/api/posts` listing endpoint to support page-based offset pagination via query parameters:
+`GET /api/posts?page=1&limit=10`
+
+## Why We Chose Offset Pagination
+Offset pagination is highly intuitive for users and developers since it explicitly maps to standard "Page 1", "Page 2" numerical navigation. It is simple to implement and straightforward for the current phase of this project where dataset mutation frequency is moderate.
+
+## How Page-Based Pagination Works
+The API accepts human-readable `page` and `limit` values, which are translated into a mathematical database offset using the formula:
+`offset = (page - 1) * limit`
+- If `page=1, limit=10` → `offset = 0` (Skip 0 rows, take 10)
+- If `page=2, limit=10` → `offset = 10` (Skip 10 rows, take 10)
+- If `page=5, limit=20` → `offset = 80` (Skip 80 rows, take 20)
+
+## Database Query
+We updated the repository to fetch paginated rows alongside the total count:
+- **ORDER BY**: We use `ORDER BY created_at DESC, id DESC`. We sort by timestamp to show newest posts first, but explicitly use `id DESC` as a deterministic tie-breaker so identical timestamps do not cause random sorting which ruins pagination boundaries.
+- **OFFSET**: Instructs the database to skip a specific number of rows.
+- **LIMIT**: Restricts the maximum number of rows returned in the page.
+- **COUNT(*)**: We perform a separate lightweight query to count all posts in the table, without transmitting the actual rows, to inform the client of the total dataset size.
+
+## Pagination Metadata
+The API now returns a structured JSON payload outlining the exact state of the paginated resource:
+- **items**: The array of actual posts.
+- **page**: The current page number requested.
+- **limit**: The maximum page size requested.
+- **total**: The absolute total count of posts in the database.
+- **total_pages**: The mathematical ceiling of total divided by limit (`ceil(total / limit)`), indicating the absolute end of the dataset.
+
+## Offset vs Cursor Pagination
+
+### Offset
+**Advantages:**
+- Extremely simple to implement on the backend.
+- Simple for frontend clients to navigate (e.g., clicking a button for "Page 4").
+- Straightforward REST API design (`?page=4`).
+
+**Limitations:**
+- Large `OFFSET` values require the database engine to scan and discard thousands of rows before returning the requested page, degrading performance on massive tables.
+- If data is actively being inserted or deleted, page boundaries shift, causing items to either be skipped or duplicated as the user navigates between pages.
+
+### Cursor / Keyset
+*(Conceptually only, not implemented in Step 7)*
+Cursor pagination uses a unique pointer (like the last seen `id` or timestamp) instead of skipping rows mathematically. It is extremely fast even on billions of rows because it seeks directly to the index pointer (`WHERE id < X`), and it prevents missing or duplicate data when the dataset mutates. However, it is harder to implement and removes the ability to jump to an arbitrary page number.
+
+## Request / Data Flow
+Client `GET /api/posts?page=2&limit=10`
+→ FastAPI Route (validates `page >= 1`, `limit <= 100`)
+→ Post Service (calculates `total_pages` metadata)
+→ Post Repository (executes `OFFSET` query & `COUNT(*)` query)
+→ PostgreSQL
+→ JSON Pagination response returned to Client
+
+## Important Concepts Learned
+- **Page-Based Pagination**: Mathematical conversion of pages to database offsets.
+- **Deterministic Ordering**: Using secondary sort columns (`id DESC`) to prevent unstable sorts.
+- **Total Result Counts**: Using separate lightweight aggregate queries to provide frontend metadata.
+- **Offset Tradeoffs**: Understanding why `OFFSET` degrades at high scale.
+
+## Verification
+A specialized targeted Python script verified:
+- Pagination page 1 (`limit=5`)
+- Pagination page 2 (`limit=5`)
+- Page overlap verification (asserted Page 1 and Page 2 share no IDs)
+- Metadata verification (asserted `page`, `limit`, `total`, `total_pages` present)
+- `total_pages` calculation verification (asserted mathematical ceiling calculation against an uneven dataset of 19 posts: `ceil(19/5) = 4`)
+- Deterministic ordering verification (asserted IDs strictly descending on identical timestamps)
+- Invalid page rejection (`page=0`, `page=-1` returned 422)
+- Invalid limit rejection (`limit=0`, `limit=101` returned 422)
+- Out-of-range page (`page=9999` returned empty items, HTTP 200, correct metadata)
+- Maximum limit behavior (`limit=100` returned HTTP 200)
+- Post CRUD regression (asserted creating, retrieving, updating, and deleting a post still functions perfectly)
+
+## Test Harness Issue
+During the initial run, the temporary Python test harness hung indefinitely. The Uvicorn subprocess was initialized using `stdout=subprocess.PIPE` and `stderr=subprocess.PIPE` without actually consuming those streams. Rapid access logs filled the 64KB OS pipe buffer and blocked the subprocess, freezing the test suite. 
+
+This was a critical process-management issue, not a pagination implementation bug.
+The fix was to stop piping unconsumed server logs (letting them flow to the terminal instead), enforce explicit HTTP request timeouts in `requests.get(timeout=10)`, and flush test outputs aggressively. 
+
+## Actual Results
+The live local API perfectly executed mathematical offset pagination. Invalid parameters were intercepted by FastAPI and resulted in `422 Unprocessable Entity` errors before reaching business logic. The `total_pages` correctly calculated as `4` for `19` items with `limit=5`. No overlap occurred between adjacent pages, and deterministic ordering behaved exactly as intended.
+
+## What I Learned From This Step
+I learned that REST API pagination requires strict boundary validation at the HTTP layer, deterministic tie-breakers at the database layer, and lightweight aggregate metadata queries. Furthermore, I learned a crucial process-management lesson regarding OS pipe buffers when scripting subprocess tests.
+
+==================================================
+
 # 5. Current Backend Architecture
 
-As of Step 5, this is the functional, implemented backend system:
+As of Step 7, this is the functional, implemented backend system:
 
 ```text
 Client
 ↓
 FastAPI
-├── Public routes (GET posts, GET comments, /health)
+├── Public routes (GET posts (Paginated), GET comments, GET likes, /health)
 └── Protected routes (POST/PUT/DELETE via HTTPBearer)
 ↓
 JWT Authentication (intercepts and extracts userId)
 ↓
-Services (PostService, CommentService enforce business/ownership rules)
+Services (Post, Comment, and Like services enforce business rules & metadata calculations)
 ↓
-Repositories (PostRepository, CommentRepository)
+Repositories (Post, Comment, and Like repositories handle SQL offset constraints)
 ↓
 Neon PostgreSQL (async connection pool)
 ```
 
 **Currently Active Resources:**
-- **Posts**: Full CRUD, protected mutations.
+- **Posts**: Full CRUD, protected mutations, paginated fetching.
 - **Comments**: Full CRUD, child to posts, protected mutations.
-*(Note: Likes exist as a database table but the API layer is not yet implemented).*
+- **Likes**: Many-to-many mapping, protected mutations, duplicate prevention.
 
 ==================================================
 
@@ -405,16 +578,20 @@ c:\Users\deore\projects\blog-platform-api\
     │   └── auth.py       # JWT extraction and Depends(get_current_user)
     ├── repositories/
     │   ├── post_repository.py
-    │   └── comment_repository.py
+    │   ├── comment_repository.py
+    │   └── like_repository.py
     ├── routes/
     │   ├── posts.py
-    │   └── comments.py
+    │   ├── comments.py
+    │   └── likes.py
     ├── schemas/
     │   ├── post.py       # Pydantic validation models
-    │   └── comment.py
+    │   ├── comment.py
+    │   └── like.py
     ├── services/
     │   ├── post_service.py
-    │   └── comment_service.py
+    │   ├── comment_service.py
+    │   └── like_service.py
     └── utils/
         └── jwt_utils.py  # Cryptographic token decoding
 ```
@@ -439,31 +616,37 @@ c:\Users\deore\projects\blog-platform-api\
 - **Primary keys**: A unique identifier for a row (`id`).
 - **Foreign keys**: A column linking to a primary key in another table (`post_id`).
 - **Composite primary keys**: Using two columns together to enforce uniqueness (e.g., `post_id` + `user_id` in the likes table).
+- **Many-to-Many Relationships**: Using junction tables without surrogate IDs to bridge relationships between objects.
+- **Aggregate SQL**: Using functions like `COUNT(*)` to summarize table states.
 - **ON DELETE CASCADE**: A database rule that automatically deletes child rows (comments) when a parent row (post) is deleted.
 - **Indexes**: Database structures that make sorting and searching specific columns extremely fast.
+- **Offset Pagination**: Transforming `page` and `limit` into `OFFSET` SQL queries to partition huge datasets.
+- **Deterministic Sorts**: Relying on unique secondary identifiers in `ORDER BY` to make query offsets behave reliably.
+- **Process Management**: Avoiding pipe buffer deadlocks when routing subprocess standard output logs.
 - **Async programming**: Using `async`/`await` in Python so the CPU can handle other web requests while waiting for network/database responses.
 - **Connection pooling**: Maintaining a cache of open database connections to handle thousands of requests without the overhead of establishing new TCP connections.
 - **asyncpg**: The fastest asyncio driver for communicating with PostgreSQL in Python.
 - **Parameterized SQL**: Passing variables to queries using `$1`, `$2` to completely eliminate SQL injection attacks.
 - **CRUD**: Create, Read, Update, Delete. The four fundamental operations of persistent storage.
 - **UUIDs**: Universally Unique Identifiers. 128-bit identifiers used for decentralized, non-guessable user IDs.
-- **HTTP status codes**: Standardized response numbers. (e.g., 200 OK, 201 Created, 204 No Content, 401 Unauthorized, 403 Forbidden, 404 Not Found, 422 Unprocessable Entity).
+- **HTTP status codes**: Standardized response numbers. (e.g., 200 OK, 201 Created, 204 No Content, 401 Unauthorized, 403 Forbidden, 404 Not Found, 409 Conflict, 422 Unprocessable Entity).
 - **Layered architecture**: Decoupling logic into thin Routes, orchestrating Services, and dedicated Repositories to create a maintainable, testable codebase.
 
 ==================================================
 
 # 8. Interview Understanding
 
-Based on the implementation up to Step 5, a developer should be able to articulate:
+Based on the implementation up to Step 7, a developer should be able to articulate:
 
-- **What the project does**: It is a high-concurrency RESTful API for a blog platform, handling users, posts, and comments securely via JWT authentication.
-- **Current architecture**: It uses an N-Tier architecture where HTTP requests hit FastAPI Routes, undergo JWT validation middleware, route to Services for business logic (like ownership checks), and pass down to Repositories for raw SQL execution.
+- **What the project does**: It is a high-concurrency RESTful API for a blog platform, handling users, posts, comments, and likes securely via JWT authentication, natively supporting paginated data retrieval.
+- **Current architecture**: It uses an N-Tier architecture where HTTP requests hit FastAPI Routes, undergo JWT validation middleware, route to Services for business logic (like ownership checks and paginated metadata calculation), and pass down to Repositories for raw SQL execution.
 - **Why FastAPI**: Selected over Flask because its native async support drastically increases throughput for database-heavy APIs, and Pydantic provides free data validation.
 - **Why PostgreSQL/Neon**: Relational data requires strict integrity (like cascading deletes). Neon was chosen for serverless connection pooling capabilities.
 - **How authentication works**: Clients send an `Authorization: Bearer` token. A FastAPI dependency intercepts the request, uses `PyJWT` with a symmetric secret (`HS256`) to mathematically prove the token was issued by us, and extracts the `userId`.
 - **How authorization works**: Inside the Service layer, the target resource (Post or Comment) is fetched. The system compares the resource's `author_id` to the authenticated JWT `userId`. If they mismatch, the service returns a `403 Forbidden`.
-- **How Posts work**: Posts are the primary resource, managed via full CRUD endpoints utilizing Pydantic schemas for data shaping and parameterized `INSERT`/`UPDATE` SQL queries.
+- **How Posts work**: Posts are the primary resource, managed via full CRUD endpoints utilizing Pydantic schemas for data shaping and parameterized `INSERT`/`UPDATE` SQL queries. Collections of posts are retrieved via page-based offset pagination with deterministic tie-breakers on unique IDs.
 - **How Comments work**: Comments are child resources mapped to Posts via a foreign key. The API checks for post existence before creating comments and relies on PostgreSQL's `ON DELETE CASCADE` to clean them up if the parent post is removed.
+- **How Likes work**: Likes use a many-to-many junction table relying on a `(post_id, user_id)` composite primary key to enforce uniqueness, which is cleanly handled and mapped to `409 Conflict` errors when duplicates are attempted in the API.
 - **How Route → Service → Repository works**: Routes handle HTTP parsing. Services handle rules (auth, existence checks). Repositories handle SQL. This prevents massive spaghetti functions and makes testing isolation possible.
 - **How the database is accessed asynchronously**: A global `asyncpg` connection pool is initialized at startup. Repositories asynchronously `acquire()` a connection, await the SQL execution, and release it back to the pool without blocking the main Python thread.
 
@@ -473,8 +656,6 @@ Based on the implementation up to Step 5, a developer should be able to articula
 
 | Step | Feature | Status |
 |------|---------|--------|
-| Step 6 | Likes API | Not Implemented |
-| Step 7 | Pagination | Not Implemented |
 | Step 8 | Redis Integration | Not Implemented |
 | Step 9 | Cache Invalidation + TTL | Not Implemented |
 | Step 10 | Automated Testing | Not Implemented |
@@ -490,3 +671,5 @@ Based on the implementation up to Step 5, a developer should be able to articula
 - **Step 3**: Integrated JWT authentication. Built middleware to extract and validate Bearer tokens. Verified via a protected `/api/auth-test` echo endpoint. Learned how stateless cryptography reduces database load.
 - **Step 4**: Implemented Posts API. Built the core layered architecture (Routes/Services/Repositories) for full CRUD operations. Enforced ownership authorization. Verified via comprehensive custom Python E2E script. Learned how to firmly decouple SQL logic from HTTP routing.
 - **Step 5**: Implemented Comments API. Handled nested child-resource logic and pre-validation (verifying post existence). Maintained strict ownership checks. Verified via a 13-point E2E Python script testing business logic and error propagation (403, 404, 422). Learned how to leverage database foreign-key constraints (ON DELETE CASCADE) to minimize application code.
+- **Step 6**: Implemented Likes API. Handled many-to-many relationships and composite primary keys `(post_id, user_id)` directly enforcing uniqueness on the database layer. Verified via a 15-point E2E testing duplicate prevention (`409 Conflict`) and aggregate queries. Learned how to handle non-identifying relationships (junction tables without surrogate ids).
+- **Step 7**: Implemented Pagination. Transformed list endpoints into paginated boundaries using offset limits and aggregate total queries. Overcame a rigorous process-management `stdout` pipeline deadlock during E2E verification. Learned how to design extensible API responses natively handling data constraints and limits.

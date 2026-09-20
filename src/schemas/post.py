@@ -21,3 +21,10 @@ class PostResponse(PostBase):
     updated_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+class PaginatedPostResponse(BaseModel):
+    items: list[PostResponse]
+    page: int
+    limit: int
+    total: int
+    total_pages: int

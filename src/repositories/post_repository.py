@@ -16,16 +16,19 @@ class PostRepository:
             row = await connection.fetchrow(query, author_id, title, content)
             return dict(row)
 
-    async def get_posts(self, skip: int = 0, limit: int = 100) -> List[dict]:
+    async def get_posts(self, page: int = 1, limit: int = 10) -> tuple[List[dict], int]:
+        offset = (page - 1) * limit
         query = """
             SELECT id, author_id, title, content, created_at, updated_at
             FROM posts
-            ORDER BY created_at DESC
+            ORDER BY created_at DESC, id DESC
             OFFSET $1 LIMIT $2
         """
+        count_query = "SELECT COUNT(*) FROM posts"
         async with self.pool.acquire() as connection:
-            rows = await connection.fetch(query, skip, limit)
-            return [dict(row) for row in rows]
+            rows = await connection.fetch(query, offset, limit)
+            total = await connection.fetchval(count_query)
+            return [dict(row) for row in rows], total
 
     async def get_post_by_id(self, post_id: int) -> Optional[dict]:
         query = """
