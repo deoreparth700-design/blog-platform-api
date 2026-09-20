@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from src.middleware.auth import get_current_user
 from src.routes.posts import router as posts_router
 from src.routes.comments import router as comments_router
+from src.routes.likes import router as likes_router
 
 app = FastAPI()
 
@@ -30,3 +31,4 @@ def auth_test(user: dict = Depends(get_current_user)):
 
 app.include_router(posts_router, prefix="/api/posts", tags=["posts"])
 app.include_router(comments_router, prefix="/api", tags=["comments"])
+app.include_router(likes_router, prefix="/api", tags=["likes"])

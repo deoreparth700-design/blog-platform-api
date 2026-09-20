@@ -4,6 +4,7 @@ from fastapi import HTTPException, status
 import asyncpg
 from src.repositories.post_repository import PostRepository
 from src.schemas.post import PostCreate, PostUpdate
+import math
 
 class PostService:
     def __init__(self, pool: asyncpg.Pool):
@@ -17,8 +18,16 @@ class PostService:
 
         return await self.repository.create_post(author_uuid, post_data.title, post_data.content)
 
-    async def get_posts(self, skip: int = 0, limit: int = 100) -> List[dict]:
-        return await self.repository.get_posts(skip, limit)
+    async def get_posts(self, page: int = 1, limit: int = 10) -> dict:
+        posts, total = await self.repository.get_posts(page, limit)
+        total_pages = math.ceil(total / limit) if limit > 0 else 0
+        return {
+            "items": posts,
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "total_pages": total_pages
+        }
 
     async def get_post_by_id(self, post_id: int) -> dict:
         post = await self.repository.get_post_by_id(post_id)

@@ -1,7 +1,7 @@
 from typing import List
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, status, HTTPException, Query
 import asyncpg
-from src.schemas.post import PostCreate, PostUpdate, PostResponse
+from src.schemas.post import PostCreate, PostUpdate, PostResponse, PaginatedPostResponse
 from src.services.post_service import PostService
 from src.config.db import get_pool
 from src.middleware.auth import get_current_user
@@ -23,13 +23,13 @@ async def create_post(
     
     return await service.create_post(user_id, post_data)
 
-@router.get("/", response_model=List[PostResponse])
+@router.get("/", response_model=PaginatedPostResponse)
 async def get_posts(
-    skip: int = 0,
-    limit: int = 100,
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
     service: PostService = Depends(get_post_service)
 ):
-    return await service.get_posts(skip, limit)
+    return await service.get_posts(page, limit)
 
 @router.get("/{post_id}", response_model=PostResponse)
 async def get_post(
