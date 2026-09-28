@@ -59,7 +59,7 @@ PostgreSQL
 ### Why we did NOT create a controllers layer:
 In traditional MVC frameworks (like Spring or Laravel), controllers are heavily utilized. However, in FastAPI, the combination of `APIRouter` (routes) and dependency injection naturally handles what a controller normally does (request shaping and HTTP response formatting). By keeping routes thin and moving logic directly to `Services`, adding a separate `controllers` layer would only introduce unnecessary boilerplate without providing any real architectural benefit.
 
-*(Note: Redis caching is a planned future architectural layer and is not currently implemented).*
+*(Note: As of Step 8, Redis caching is integrated as a performance layer using the cache-aside pattern. PostgreSQL remains the source of truth.)*
 
 ==================================================
 
@@ -74,7 +74,7 @@ In traditional MVC frameworks (like Spring or Laravel), controllers are heavily 
 | Step 5 | Comments API | Completed & Verified |
 | Step 6 | Likes API | Completed & Verified |
 | Step 7 | Pagination | Completed & Verified |
-| Step 8 | Redis Integration | Not Implemented |
+| Step 8 | Redis Integration | Completed & Verified |
 | Step 9 | Cache Invalidation + TTL | Not Implemented |
 | Step 10 | Automated Testing | Not Implemented |
 | Step 11 | Performance Measurement | Not Implemented |
@@ -525,9 +525,128 @@ I learned that REST API pagination requires strict boundary validation at the HT
 
 ==================================================
 
+# Step 8 — Redis Integration
+
+## Status
+Completed & Verified
+
+## Why We Needed This Step
+The `GET /api/posts` and `GET /api/posts/{id}` endpoints hit the PostgreSQL database on every single request, even when the data has not changed. For a read-heavy blog platform, this creates unnecessary database load and increases response latency. We needed a caching layer to serve repeated read requests from memory instead of re-querying the database.
+
+## What We Built
+We integrated Upstash Redis as a cache layer using the **cache-aside** pattern. We created a Redis configuration module (`src/config/redis.py`) to initialize a singleton async Redis client from environment variables, and a Cache Service (`src/services/cache_service.py`) that wraps Redis operations with JSON serialization and graceful error handling. We updated the `GET /api/posts` and `GET /api/posts/{post_id}` routes to check the cache before querying PostgreSQL, and to set an `X-Cache` response header (`HIT` or `MISS`) so clients can observe caching behavior.
+
+## Files Created / Modified
+- `src/config/redis.py` (NEW)
+- `src/services/cache_service.py` (NEW)
+- `src/routes/posts.py` (MODIFIED)
+- `requirements.txt` (already contained `upstash-redis`)
+- `scripts/verify_redis.py` (NEW — verification script)
+
+## Why We Chose This Technology / Approach
+Upstash Redis was chosen because it provides a serverless, HTTP-based Redis service that requires no infrastructure management. The Upstash Python SDK (`upstash-redis`) communicates over HTTPS REST calls (not persistent TCP connections), which simplifies deployment and eliminates connection pool management for the cache layer. The cache-aside pattern was chosen because it keeps the caching logic explicit and transparent, making it easy to understand and debug.
+
+## SDK Behavior (upstash-redis 1.8.0 — Verified via Source Inspection)
+Before implementing the cache service, we inspected the SDK source code to understand its exact serialization behavior:
+
+- **`SET` command**: The SDK's `_format_command` function calls `json.dumps()` on any value that is not a `str`, `int`, or `float`. Since our data contains `datetime` and `UUID` objects (not natively JSON-serializable), we must pre-serialize using `json.dumps(value, default=str)` and pass the resulting string to `redis.set()`. The string passes through `_format_command` unchanged (no double serialization).
+- **`GET` command**: `GET` has **no entry** in the SDK's `FORMATTERS` dict (`format.py`). The `cast_response` function returns the raw REST API response result as-is. Since Redis stores strings and the REST response is JSON-parsed, `GET` returns a Python `str` (or `None` for a miss). We must call `json.loads()` on the result to recover the original Python dict/list.
+- **`SET` return value**: The `SET` command is in the `FORMATTERS` dict and uses `format_set` which returns `True` on `"OK"`.
+- **Error handling**: Network errors (DNS failures, timeouts) raise standard Python exceptions, which our `CacheService` catches gracefully.
+
+This behavior was empirically confirmed:
+```
+PING: PONG
+GET raw type: str, value: 'hello'
+GET json type: str
+Recovered matches: True
+```
+
+## How the Cache-Aside Pattern Works
+```text
+Client GET /api/posts?page=1&limit=5
+→ Route builds cache key: "posts:list:page:1:limit:5"
+→ CacheService.get(key)
+  → Redis returns cached JSON string? → json.loads() → return data, X-Cache: HIT
+  → Redis returns None (miss)?        → fall through
+→ PostService.get_posts(1, 5)          → PostgreSQL query
+→ CacheService.set(key, result)        → json.dumps(result, default=str) → Redis SET
+→ Return data, X-Cache: MISS
+```
+
+For individual posts:
+```text
+Client GET /api/posts/42
+→ Cache key: "posts:item:42"
+→ Same cache-aside flow
+→ 404 responses are NOT cached (only successful results)
+```
+
+## Cache Key Design
+Each unique query maps to its own cache key:
+- **Paginated lists**: `posts:list:page:{page}:limit:{limit}` — This is critical because without the pagination parameters, requesting page 2 would return page 1's cached data.
+- **Individual posts**: `posts:item:{post_id}`
+
+## Graceful Redis Failure Behavior
+Redis is a **performance layer**, not a critical dependency. PostgreSQL remains the source of truth. If Redis is unreachable:
+- **GET failure**: Returns `None` → triggers a cache MISS → falls back to PostgreSQL. The error is logged.
+- **SET failure**: Returns `False` → the response is still returned to the client from PostgreSQL. The error is logged.
+- **No crash**: The API continues to function normally with every request hitting PostgreSQL directly.
+
+This was verified by pointing the Redis client at an invalid URL:
+```
+Redis GET failed for key 'test_key': [Errno 11001] getaddrinfo failed
+GET returned None (fallback): True
+SET returned False (graceful): True
+```
+
+## What Step 8 Does NOT Include (Deferred to Later Steps)
+- **TTL (Time-To-Live)**: Cached entries have no expiration in Step 8. TTL will be introduced in Step 9.
+- **Cache Invalidation**: When a post is created, updated, or deleted, the stale cache is NOT automatically cleared. This will be handled in Step 9.
+- **Mutation endpoint caching**: Only GET endpoints use the cache. POST/PUT/DELETE bypass it entirely.
+
+## Request / Data Flow
+Client `GET /api/posts?page=1&limit=5`
+→ Route injects `Response` (for headers) + `CacheService` + `PostService`
+→ Build cache key `posts:list:page:1:limit:5`
+→ `CacheService.get(key)` → Redis HTTP GET
+→ If cached: `json.loads()` → set `X-Cache: HIT` → return
+→ If miss: `PostService.get_posts()` → PostgreSQL
+→ `CacheService.set(key, result)` → `json.dumps(default=str)` → Redis HTTP SET
+→ Set `X-Cache: MISS` → return
+
+## Important Concepts Learned
+- **Cache-Aside Pattern**: The application explicitly checks the cache before the database, and populates the cache on a miss. The cache is not automatically synchronized with the database.
+- **X-Cache Header**: A standard HTTP response header that communicates whether a response was served from cache (`HIT`) or from the origin (`MISS`).
+- **JSON Serialization for Redis**: Redis stores strings. Complex Python objects (dicts with datetime/UUID) must be serialized with `json.dumps(default=str)` and deserialized with `json.loads()`.
+- **SDK Source Inspection**: Reading the actual SDK source code (not just documentation) to understand serialization behavior and avoid double-encoding bugs.
+- **Graceful Degradation**: Designing cache failures to be non-fatal — the system falls back to PostgreSQL instead of crashing.
+- **HTTP-Based Redis**: Unlike traditional Redis clients that maintain persistent TCP connections, Upstash's SDK sends stateless HTTPS requests. This simplifies deployment but means each cache operation has HTTP overhead.
+
+## Verification
+A 22-point automated Python verification script was executed against a live server instance.
+
+## Actual Result
+All 22 verification tests passed:
+- Health check returned 200.
+- `GET /api/posts?page=1&limit=5` returned `X-Cache: MISS` on first call, `X-Cache: HIT` on second call.
+- Cached paginated data matched the original PostgreSQL response exactly.
+- `GET /api/posts/{id}` returned `X-Cache: MISS` on first call, `X-Cache: HIT` on second call.
+- Cached individual post data matched the original exactly.
+- `GET /api/posts/999999` returned 404 with no `X-Cache: HIT` (404s are not cached).
+- Different pagination parameters (`page=2`) received their own independent cache entry (`X-Cache: MISS`).
+- Comments API regression: `GET /api/posts/{id}/comments` returned 200.
+- Likes API regression: `GET /api/posts/{id}/likes` returned 200.
+- Redis failure fallback: With invalid credentials, GET returned `None` and SET returned `False` without crashing.
+
+## What I Learned From This Step
+I learned how to integrate a managed Redis service as a transparent caching layer without disrupting existing functionality. I learned the importance of inspecting SDK source code rather than assuming serialization behavior, and how to design a cache layer that degrades gracefully — ensuring the database remains the authoritative source of truth while the cache serves as an optional performance accelerator.
+
+==================================================
+
 # 5. Current Backend Architecture
 
-As of Step 7, this is the functional, implemented backend system:
+As of Step 8, this is the functional, implemented backend system:
 
 ```text
 Client
@@ -538,15 +657,19 @@ FastAPI
 ↓
 JWT Authentication (intercepts and extracts userId)
 ↓
+Cache Service (cache-aside: check Redis before PostgreSQL for GET requests)
+↓ (HIT → return cached)     ↓ (MISS → continue)
 Services (Post, Comment, and Like services enforce business rules & metadata calculations)
 ↓
 Repositories (Post, Comment, and Like repositories handle SQL offset constraints)
 ↓
-Neon PostgreSQL (async connection pool)
+Neon PostgreSQL (async connection pool — source of truth)
+↑
+Cache Service (store result in Redis on MISS)
 ```
 
 **Currently Active Resources:**
-- **Posts**: Full CRUD, protected mutations, paginated fetching.
+- **Posts**: Full CRUD, protected mutations, paginated fetching, Redis caching (GET only).
 - **Comments**: Full CRUD, child to posts, protected mutations.
 - **Likes**: Many-to-many mapping, protected mutations, duplicate prevention.
 
@@ -569,6 +692,7 @@ c:\Users\deore\projects\blog-platform-api\
     ├── app.py            # FastAPI application instance and router mounting
     ├── server.py         # Uvicorn entry point
     ├── config/
+    │   ├── redis.py    # Upstash Redis async client singleton
     │   └── db.py         # asyncpg connection pool logic
     ├── controllers/
     │   └── .gitkeep      # (Intentionally unused to adhere to thin-route architecture)
@@ -589,6 +713,7 @@ c:\Users\deore\projects\blog-platform-api\
     │   ├── comment.py
     │   └── like.py
     ├── services/
+    │   ├── cache_service.py  # Redis cache wrapper with JSON serialization
     │   ├── post_service.py
     │   ├── comment_service.py
     │   └── like_service.py
@@ -656,7 +781,7 @@ Based on the implementation up to Step 7, a developer should be able to articula
 
 | Step | Feature | Status |
 |------|---------|--------|
-| Step 8 | Redis Integration | Not Implemented |
+| Step 8 | Redis Integration | Completed & Verified |
 | Step 9 | Cache Invalidation + TTL | Not Implemented |
 | Step 10 | Automated Testing | Not Implemented |
 | Step 11 | Performance Measurement | Not Implemented |
@@ -673,3 +798,4 @@ Based on the implementation up to Step 7, a developer should be able to articula
 - **Step 5**: Implemented Comments API. Handled nested child-resource logic and pre-validation (verifying post existence). Maintained strict ownership checks. Verified via a 13-point E2E Python script testing business logic and error propagation (403, 404, 422). Learned how to leverage database foreign-key constraints (ON DELETE CASCADE) to minimize application code.
 - **Step 6**: Implemented Likes API. Handled many-to-many relationships and composite primary keys `(post_id, user_id)` directly enforcing uniqueness on the database layer. Verified via a 15-point E2E testing duplicate prevention (`409 Conflict`) and aggregate queries. Learned how to handle non-identifying relationships (junction tables without surrogate ids).
 - **Step 7**: Implemented Pagination. Transformed list endpoints into paginated boundaries using offset limits and aggregate total queries. Overcame a rigorous process-management `stdout` pipeline deadlock during E2E verification. Learned how to design extensible API responses natively handling data constraints and limits.
+- **Step 8**: Integrated Upstash Redis as a caching layer using the cache-aside pattern. Built `CacheService` with graceful error handling and JSON serialization. Inspected the SDK source code to verify exact GET/SET serialization behavior. Added `X-Cache: HIT/MISS` headers to read endpoints. Verified via a 22-point automated E2E script and confirmed graceful PostgreSQL fallback on Redis failure. Learned how to layer caching transparently without disrupting existing functionality.

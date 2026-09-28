@@ -1,6 +1,6 @@
 # Blog Platform API
 
-A backend REST API for a blog platform built with **FastAPI** and **PostgreSQL**, with JWT-based authentication and a layered architecture designed for scalability and maintainability.
+A backend REST API for a blog platform built with **FastAPI**, **PostgreSQL**, and **Redis**, with JWT-based authentication and a layered architecture designed for scalability and maintainability.
 
 The project is being developed step by step to understand how a production-style backend works — from HTTP requests and authentication to database access, caching, testing, performance measurement, and deployment.
 
@@ -15,7 +15,7 @@ The project is being developed step by step to understand how a production-style
 | Comments API             | ✅ Completed & Verified |
 | Likes API                | ✅ Completed & Verified |
 | Pagination               | ✅ Completed & Verified |
-| Redis Caching            | 🔜 Planned             |
+| Redis Caching            | ✅ Completed & Verified |
 | Cache Invalidation + TTL | 🔜 Planned             |
 | Automated Testing        | 🔜 Planned             |
 | Performance Measurement  | 🔜 Planned             |
@@ -36,10 +36,10 @@ The project is being developed step by step to understand how a production-style
 * **Pydantic**
 * **JWT / PyJWT**
 * **python-dotenv**
+* **Upstash Redis** (upstash-redis SDK)
 
 ### Planned
 
-* **Redis**
 * Automated API testing
 * Performance testing
 * Production deployment
@@ -57,11 +57,15 @@ FastAPI Routes
    ↓
 JWT Authentication
    ↓
+Cache Service (Redis — cache-aside for GET requests)
+   ↓ HIT → return          ↓ MISS → continue
 Services
    ↓
 Repositories
    ↓
-PostgreSQL
+PostgreSQL (source of truth)
+   ↑
+Cache Service (store in Redis on MISS)
    ↓
 Response
 ```
@@ -97,6 +101,7 @@ blog-platform-api/
 │
 ├── src/
 │   ├── config/
+│   │   ├── redis.py          # Upstash Redis async client singleton
 │   │   └── db.py
 │   │
 │   ├── controllers/
@@ -124,6 +129,7 @@ blog-platform-api/
 │   │   └── like.py
 │   │
 │   ├── services/
+│   │   ├── cache_service.py  # Redis cache wrapper
 │   │   ├── post_service.py
 │   │   ├── comment_service.py
 │   │   └── like_service.py
@@ -196,6 +202,12 @@ The `GET /api/posts` endpoint accepts `page` and `limit` query parameters.
 - **page**: The page number to retrieve (default: 1)
 - **limit**: The number of items per page (default: 10, max: 100)
 - **Ordering**: Posts are returned in deterministic newest-first ordering (`created_at DESC, id DESC`).
+
+**Caching:**
+The `GET /api/posts` and `GET /api/posts/{post_id}` endpoints use Redis caching with the cache-aside pattern.
+- Responses include an `X-Cache` header: `HIT` (served from Redis) or `MISS` (fetched from PostgreSQL).
+- 404 responses are not cached.
+- If Redis is unavailable, requests fall back gracefully to PostgreSQL.
 
 ---
 
