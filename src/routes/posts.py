@@ -28,13 +28,17 @@ def get_cache_service() -> CacheService:
 async def create_post(
     post_data: PostCreate,
     current_user: dict = Depends(get_current_user),
-    service: PostService = Depends(get_post_service)
+    service: PostService = Depends(get_post_service),
+    cache: CacheService = Depends(get_cache_service)
 ):
     user_id = current_user.get("userId")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
     
-    return await service.create_post(user_id, post_data)
+    created_post = await service.create_post(user_id, post_data)
+    # Step 9: Invalidate post list cache so new post appears on next GET list query
+    await cache.invalidate_post_list()
+    return created_post
 
 @router.get("/", response_model=PaginatedPostResponse)
 async def get_posts(
@@ -45,11 +49,11 @@ async def get_posts(
     cache: CacheService = Depends(get_cache_service)
 ):
     """
-    Cache-aside pattern for paginated post listing.
+    Cache-aside pattern for paginated post listing with TTL (5 minutes).
     
     1. Check Redis for cached result using page+limit as the cache key.
     2. If HIT: return cached data, set X-Cache: HIT.
-    3. If MISS: fetch from PostgreSQL, store in cache, set X-Cache: MISS.
+    3. If MISS: fetch from PostgreSQL, store in cache with 300s TTL, set X-Cache: MISS.
     
     Redis failures fall back gracefully to PostgreSQL.
     """
@@ -64,8 +68,8 @@ async def get_posts(
     # Step 2: Cache miss — fetch from PostgreSQL
     result = await service.get_posts(page, limit)
 
-    # Step 3: Store in cache (fire-and-forget style; failure is non-blocking)
-    await cache.set(cache_key, result)
+    # Step 3: Store in cache with TTL (fire-and-forget style; failure is non-blocking)
+    await cache.set(cache_key, result, ttl=300)
 
     response.headers["X-Cache"] = "MISS"
     return result
@@ -78,12 +82,12 @@ async def get_post(
     cache: CacheService = Depends(get_cache_service)
 ):
     """
-    Cache-aside pattern for individual post retrieval.
+    Cache-aside pattern for individual post retrieval with TTL (5 minutes).
     
     1. Check Redis for cached post by ID.
     2. If HIT: return cached data, set X-Cache: HIT.
     3. If MISS: fetch from PostgreSQL (raises 404 if not found),
-       store in cache, set X-Cache: MISS.
+       store in cache with 300s TTL, set X-Cache: MISS.
     
     404 responses are NOT cached — only successful results.
     Redis failures fall back gracefully to PostgreSQL.
@@ -99,8 +103,8 @@ async def get_post(
     # Step 2: Cache miss — fetch from PostgreSQL (raises 404 if not found)
     result = await service.get_post_by_id(post_id)
 
-    # Step 3: Store in cache (only reached if post exists)
-    await cache.set(cache_key, result)
+    # Step 3: Store in cache with TTL (only reached if post exists)
+    await cache.set(cache_key, result, ttl=300)
 
     response.headers["X-Cache"] = "MISS"
     return result
@@ -110,22 +114,29 @@ async def update_post(
     post_id: int,
     post_data: PostUpdate,
     current_user: dict = Depends(get_current_user),
-    service: PostService = Depends(get_post_service)
+    service: PostService = Depends(get_post_service),
+    cache: CacheService = Depends(get_cache_service)
 ):
     user_id = current_user.get("userId")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
         
-    return await service.update_post(post_id, user_id, post_data)
+    updated_post = await service.update_post(post_id, user_id, post_data)
+    # Step 9: Invalidate specific post item cache AND list caches
+    await cache.invalidate_post(post_id)
+    return updated_post
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_post(
     post_id: int,
     current_user: dict = Depends(get_current_user),
-    service: PostService = Depends(get_post_service)
+    service: PostService = Depends(get_post_service),
+    cache: CacheService = Depends(get_cache_service)
 ):
     user_id = current_user.get("userId")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
         
     await service.delete_post(post_id, user_id)
+    # Step 9: Invalidate specific post item cache AND list caches
+    await cache.invalidate_post(post_id)
