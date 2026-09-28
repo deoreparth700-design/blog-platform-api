@@ -2,24 +2,20 @@
 Cache Service
 
 Encapsulates Redis cache operations with JSON serialization/deserialization.
-Provides clean async helpers for get, set, and delete operations.
+Provides clean async helpers for get, set, delete, and pattern invalidation.
 
 All methods handle Redis failures gracefully:
   - GET failure → returns None (triggers a cache MISS, falls back to PostgreSQL)
   - SET failure → logs the error, does not block the response
   - DELETE failure → logs the error silently
+  - Invalidation failure → logs the error silently
 
 This ensures a Redis outage does not destroy the core API.
 
-SDK Behavior Notes (upstash-redis 1.8.0, verified via source inspection):
-  - GET has no entry in the SDK's FORMATTERS dict, so it returns the raw
-    result from the REST response. When a string was stored, GET returns
-    that string. When the key doesn't exist, GET returns None.
-  - SET uses _format_command which calls json.dumps() on non-string/int/float
-    values. Since our data contains datetime and UUID objects that are not
-    natively JSON-serializable, we pre-serialize with json.dumps(value, default=str).
-  - Therefore: SET receives a plain JSON string, and GET returns that same string.
-    We need json.loads() on the GET side to recover the Python dict/list.
+Step 9 Enhancements:
+  - TTL (Time-To-Live) support on set() (default: 300 seconds / 5 minutes)
+  - Pattern-based cache invalidation (delete_by_pattern)
+  - Specific post invalidation helper (invalidate_post)
 """
 
 import json
@@ -29,11 +25,15 @@ from upstash_redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
+# Default Time-To-Live for cached entries (5 minutes = 300 seconds)
+DEFAULT_CACHE_TTL = 300
+
 
 class CacheService:
     """
     A thin wrapper around the Upstash Redis async client that handles
-    JSON serialization and graceful error handling for cache operations.
+    JSON serialization, TTL expirations, pattern invalidations, and
+    graceful error handling for cache operations.
     """
 
     def __init__(self, redis_client: Redis):
@@ -61,21 +61,28 @@ class CacheService:
             logger.error("Redis GET failed for key '%s': %s", key, str(e))
             return None
 
-    async def set(self, key: str, value: Any) -> bool:
+    async def set(
+        self,
+        key: str,
+        value: Any,
+        ttl: Optional[int] = DEFAULT_CACHE_TTL
+    ) -> bool:
         """
-        Store a value in the cache as a JSON string.
+        Store a value in the cache as a JSON string with an optional TTL (in seconds).
+
+        Parameters:
+            key: The Redis key.
+            value: The Python object to store.
+            ttl: Time-To-Live in seconds (default: 300s). If None, key will not expire.
 
         Returns True on success, False on failure.
-        No TTL is set in Step 8 — that will be introduced in Step 9.
-
-        We use json.dumps(value, default=str) to handle datetime and UUID
-        objects that are not natively JSON-serializable. The resulting string
-        is passed to redis.set(), where the SDK sends it as-is (strings pass
-        through _format_command unchanged).
         """
         try:
             json_value = json.dumps(value, default=str)
-            await self.redis.set(key, json_value)
+            if ttl is not None and ttl > 0:
+                await self.redis.set(key, json_value, ex=ttl)
+            else:
+                await self.redis.set(key, json_value)
             return True
 
         except Exception as e:
@@ -86,7 +93,6 @@ class CacheService:
         """
         Delete a cached value by key.
 
-        Prepared for Step 9 cache invalidation.
         Returns True on success, False on failure.
         """
         try:
@@ -97,14 +103,46 @@ class CacheService:
             logger.error("Redis DELETE failed for key '%s': %s", key, str(e))
             return False
 
+    async def delete_by_pattern(self, pattern: str) -> bool:
+        """
+        Find and delete all keys matching a given wildcard pattern (e.g. 'posts:list:*').
+
+        Uses redis.keys(pattern) to retrieve matching keys and redis.delete(*keys)
+        to remove them.
+
+        Returns True on success, False on failure.
+        """
+        try:
+            matching_keys = await self.redis.keys(pattern)
+            if matching_keys and isinstance(matching_keys, list) and len(matching_keys) > 0:
+                await self.redis.delete(*matching_keys)
+                logger.info("Invalidated %d cache keys matching pattern '%s'", len(matching_keys), pattern)
+            return True
+
+        except Exception as e:
+            logger.error("Redis pattern invalidation failed for '%s': %s", pattern, str(e))
+            return False
+
+    async def invalidate_post_list(self) -> bool:
+        """
+        Invalidate all paginated post list cache entries ('posts:list:*').
+        Called when a post is created, updated, or deleted.
+        """
+        return await self.delete_by_pattern("posts:list:*")
+
+    async def invalidate_post(self, post_id: int) -> bool:
+        """
+        Invalidate both the individual post cache ('posts:item:{post_id}')
+        and all paginated post list caches ('posts:list:*').
+        Called when a post is updated or deleted.
+        """
+        item_key = self.build_post_item_key(post_id)
+        await self.delete(item_key)
+        await self.invalidate_post_list()
+        return True
+
     # ----------------------------------------------------------------
     # Cache key builders
-    # ----------------------------------------------------------------
-    # Including pagination parameters (page and limit) in the list key
-    # is critical. Without them, requesting page 2 would overwrite the
-    # cached result for page 1, and every page would return the same
-    # stale data. Each unique (page, limit) combination MUST map to
-    # its own cache entry.
     # ----------------------------------------------------------------
 
     @staticmethod

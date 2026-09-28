@@ -782,7 +782,7 @@ Based on the implementation up to Step 7, a developer should be able to articula
 | Step | Feature | Status |
 |------|---------|--------|
 | Step 8 | Redis Integration | Completed & Verified |
-| Step 9 | Cache Invalidation + TTL | Not Implemented |
+| Step 9 | Cache Invalidation + TTL | Completed & Verified |
 | Step 10 | Automated Testing | Not Implemented |
 | Step 11 | Performance Measurement | Not Implemented |
 | Step 12 | Deployment | Not Implemented |
@@ -799,3 +799,4 @@ Based on the implementation up to Step 7, a developer should be able to articula
 - **Step 6**: Implemented Likes API. Handled many-to-many relationships and composite primary keys `(post_id, user_id)` directly enforcing uniqueness on the database layer. Verified via a 15-point E2E testing duplicate prevention (`409 Conflict`) and aggregate queries. Learned how to handle non-identifying relationships (junction tables without surrogate ids).
 - **Step 7**: Implemented Pagination. Transformed list endpoints into paginated boundaries using offset limits and aggregate total queries. Overcame a rigorous process-management `stdout` pipeline deadlock during E2E verification. Learned how to design extensible API responses natively handling data constraints and limits.
 - **Step 8**: Integrated Upstash Redis as a caching layer using the cache-aside pattern. Built `CacheService` with graceful error handling and JSON serialization. Inspected the SDK source code to verify exact GET/SET serialization behavior. Added `X-Cache: HIT/MISS` headers to read endpoints. Verified via a 22-point automated E2E script and confirmed graceful PostgreSQL fallback on Redis failure. Learned how to layer caching transparently without disrupting existing functionality.
+- **Step 9**: Implemented Cache Invalidation and TTL (Time-To-Live). Enhanced `CacheService` with a default 300s (5-minute) TTL on `set()` and pattern-based key deletion (`delete_by_pattern`). Integrated write-through cache invalidation in post creation, update, and deletion routes (`POST`, `PUT`, `DELETE`), invalidating individual item keys (`posts:item:{id}`) and paginated list keys (`posts:list:*`). Verified via a 20-point automated E2E test script checking direct Redis TTL values and cache invalidation. Learned how to manage cache freshness and prevent stale data in high-concurrency environments.
