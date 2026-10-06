@@ -75,7 +75,7 @@ In traditional MVC frameworks (like Spring or Laravel), controllers are heavily 
 | Step 6 | Likes API | Completed & Verified |
 | Step 7 | Pagination | Completed & Verified |
 | Step 8 | Redis Integration | Completed & Verified |
-| Step 9 | Cache Invalidation + TTL | Not Implemented |
+| Step 9 | Cache Invalidation + TTL | Completed & Verified |
 | Step 10 | Automated Testing | Not Implemented |
 | Step 11 | Performance Measurement | Not Implemented |
 | Step 12 | Deployment | Not Implemented |
@@ -644,9 +644,87 @@ I learned how to integrate a managed Redis service as a transparent caching laye
 
 ==================================================
 
+# Step 9 — Cache Invalidation + TTL
+
+## Status
+Completed & Verified
+
+## Why We Needed This Step
+In Step 8, the cache layer stored responses indefinitely without expiration (no TTL), and database mutations (creating, updating, or deleting posts) had no mechanism to invalidate stale cache entries. This created severe cache inconsistency:
+- Newly created posts would not appear in cached list queries (`/api/posts?page=1&limit=5`).
+- Updated post titles and contents would continue serving obsolete data from `posts:item:{post_id}` and list caches.
+- Deleted posts would still be served from cache as valid resources instead of returning 404 Not Found.
+
+To guarantee cache freshness while preserving high read throughput, we needed automated Time-To-Live (TTL) expiration policies tailored to resource types, along with write-through cache invalidation on every mutating endpoint.
+
+## What We Built
+1. **Differentiated TTL Policy Matching Specification**:
+   - **Paginated Post Lists** (`posts:list:page:{page}:limit:{limit}`): `POSTS_LIST_TTL = 60` seconds. Lists are dynamic and change frequently as new content is authored.
+   - **Individual Posts** (`posts:item:{post_id}`): `POST_ITEM_TTL = 300` seconds (5 minutes). Single post details change less frequently and benefit from longer caching.
+   - Removed universal default TTL in favor of explicit per-endpoint policy enforcement.
+
+2. **Pattern-Based and Key-Based Cache Invalidation**:
+   - Added `delete_by_pattern(pattern)` to `CacheService` to scan and delete wildcard keys (e.g., `posts:list:*`) using `redis.keys()` and `redis.delete()`.
+   - Added `invalidate_post_list()` to invalidate all paginated post list variations simultaneously.
+   - Added `invalidate_post(post_id)` to atomically invalidate both the individual post cache (`posts:item:{post_id}`) and all post list caches (`posts:list:*`).
+
+3. **Write-Through Invalidation in Post Mutation Routes**:
+   - `POST /api/posts/`: Calls `cache.invalidate_post_list()` upon successful database insert so the new post appears immediately on subsequent list queries.
+   - `PUT /api/posts/{post_id}`: Calls `cache.invalidate_post(post_id)` upon successful update so the item cache and all list caches reflect fresh data.
+   - `DELETE /api/posts/{post_id}`: Calls `cache.invalidate_post(post_id)` upon successful database deletion so subsequent item fetches return 404 and list views exclude the removed post.
+
+4. **Comment & Like Mutation Invalidation Strategy**:
+   - The current `PostResponse` and `PaginatedPostResponse` schemas do NOT embed comments or like counts.
+   - Therefore, creating, updating, or deleting comments or likes does NOT make the cached post data stale. Cache invalidation on comment/like mutations is intentionally omitted to avoid unnecessary cache thrashing, with explicit documentation that if schemas later include comment/like counts, invalidation hooks will be added.
+
+5. **Graceful Redis Degradation**:
+   - All `CacheService` operations (`get`, `set`, `delete`, `delete_by_pattern`) catch all Redis exceptions, log detailed warnings/errors, and return safe fallback values (`None`, `False`, `0`) without raising exceptions.
+   - If Redis becomes unreachable, read endpoints cleanly fall back to PostgreSQL with `X-Cache: MISS`, and mutation endpoints succeed without crashing.
+
+## Files Created / Modified
+- `src/services/cache_service.py` (MODIFIED — added `POSTS_LIST_TTL = 60`, `POST_ITEM_TTL = 300`, `delete_by_pattern`, `invalidate_post`, `invalidate_post_list`, explicit TTL requirement)
+- `src/routes/posts.py` (MODIFIED — updated GET endpoints with explicit TTL constants, added cache invalidation hooks in POST, PUT, and DELETE routes)
+- `scripts/verify_step9.py` (NEW — 41-point comprehensive verification test suite)
+
+## Cache Lifecycle Matrix
+| Operation | Cache Action | Affected Keys | Resulting State |
+|-----------|--------------|---------------|-----------------|
+| `GET /api/posts/?page=1&limit=5` (miss) | Write list cache | `posts:list:page:1:limit:5` | TTL: 60s, `X-Cache: MISS` |
+| `GET /api/posts/?page=1&limit=5` (hit) | Read from Redis | `posts:list:page:1:limit:5` | Served from Redis, `X-Cache: HIT` |
+| `GET /api/posts/{id}` (miss) | Write item cache | `posts:item:{id}` | TTL: 300s, `X-Cache: MISS` |
+| `GET /api/posts/{id}` (hit) | Read from Redis | `posts:item:{id}` | Served from Redis, `X-Cache: HIT` |
+| `POST /api/posts/` | Pattern deletion | `posts:list:*` | Next list query returns `X-Cache: MISS` with new post |
+| `PUT /api/posts/{id}` | Item + Pattern deletion | `posts:item:{id}`, `posts:list:*` | Next item & list queries return `X-Cache: MISS` with updated data |
+| `DELETE /api/posts/{id}` | Item + Pattern deletion | `posts:item:{id}`, `posts:list:*` | Next item query returns HTTP 404; next list query returns `X-Cache: MISS` |
+
+## Verification
+A 41-point automated Python verification script (`scripts/verify_step9.py`) was executed against the live local server and Upstash Redis REST API.
+
+## Actual Results
+All 41 tests passed:
+- **Health check**: Returned 200 OK.
+- **List caching**: First call returned `X-Cache: MISS`, second call returned `X-Cache: HIT` with matching data.
+- **List TTL**: Queried Redis directly via Upstash REST API; confirmed `0 < TTL <= 60s` (measured `58s`).
+- **Item caching**: First call returned `X-Cache: MISS`, second call returned `X-Cache: HIT` with matching data.
+- **Item TTL**: Queried Redis directly via Upstash REST API; confirmed `60 < TTL <= 300s` (measured `297s`), proving individual posts use the 300s policy and not the 60s list policy.
+- **Create invalidation**: `POST /api/posts/` returned 201; subsequent list query returned `X-Cache: MISS`.
+- **Update invalidation**: `PUT /api/posts/{id}` returned 200; subsequent item query returned `X-Cache: MISS` with updated title; subsequent list query returned `X-Cache: MISS`.
+- **Delete invalidation**: `DELETE /api/posts/{id}` returned 204; subsequent item query returned 404 Not Found; subsequent list query returned `X-Cache: MISS`.
+- **Authentication & Authorization**: Unauthenticated mutations returned 401; non-owner mutations returned 403 Forbidden.
+- **Graceful Redis degradation**: Simulated connection errors in `CacheService` confirmed `get()` returns `None`, `set()` returns `False`, `delete()` returns `False`, and `delete_by_pattern()` returns `False` without throwing exceptions.
+- **Regression**: Comments (200), Likes (200), JWT auth-test (200), Pagination page 2 (200), and 404 for nonexistent post (not cached) all passed.
+
+## What I Learned From This Step
+I learned that cache management requires careful alignment between data volatility and cache lifetimes:
+1. **Tiered TTL Policies**: Frequently updated aggregates (like paginated collection listings) require short TTLs (60s) to limit staleness, whereas individual item views can safely cache longer (300s).
+2. **Wildcard Invalidation**: Using pattern-based deletion (`posts:list:*`) solves the challenge of cache variations across different pagination parameters (`page`, `limit`), ensuring no stale page slices remain after a write.
+3. **Fail-Open Resilience**: Caching must always be non-fatal. By shielding the application with comprehensive exception handling, database operations succeed even during Redis infrastructure anomalies.
+
+==================================================
+
 # 5. Current Backend Architecture
 
-As of Step 8, this is the functional, implemented backend system:
+As of Step 9, this is the functional, implemented backend system:
 
 ```text
 Client
@@ -799,4 +877,4 @@ Based on the implementation up to Step 7, a developer should be able to articula
 - **Step 6**: Implemented Likes API. Handled many-to-many relationships and composite primary keys `(post_id, user_id)` directly enforcing uniqueness on the database layer. Verified via a 15-point E2E testing duplicate prevention (`409 Conflict`) and aggregate queries. Learned how to handle non-identifying relationships (junction tables without surrogate ids).
 - **Step 7**: Implemented Pagination. Transformed list endpoints into paginated boundaries using offset limits and aggregate total queries. Overcame a rigorous process-management `stdout` pipeline deadlock during E2E verification. Learned how to design extensible API responses natively handling data constraints and limits.
 - **Step 8**: Integrated Upstash Redis as a caching layer using the cache-aside pattern. Built `CacheService` with graceful error handling and JSON serialization. Inspected the SDK source code to verify exact GET/SET serialization behavior. Added `X-Cache: HIT/MISS` headers to read endpoints. Verified via a 22-point automated E2E script and confirmed graceful PostgreSQL fallback on Redis failure. Learned how to layer caching transparently without disrupting existing functionality.
-- **Step 9**: Implemented Cache Invalidation and TTL (Time-To-Live). Enhanced `CacheService` with a default 300s (5-minute) TTL on `set()` and pattern-based key deletion (`delete_by_pattern`). Integrated write-through cache invalidation in post creation, update, and deletion routes (`POST`, `PUT`, `DELETE`), invalidating individual item keys (`posts:item:{id}`) and paginated list keys (`posts:list:*`). Verified via a 20-point automated E2E test script checking direct Redis TTL values and cache invalidation. Learned how to manage cache freshness and prevent stale data in high-concurrency environments.
+- **Step 9**: Implemented Cache Invalidation and TTL (Time-To-Live). Upgraded cache architecture to use differentiated TTL policies matching project specifications: 60s for paginated post lists (`posts:list:page:{page}:limit:{limit}`) and 300s (5 minutes) for individual posts (`posts:item:{post_id}`). Added pattern-based wildcard invalidation (`delete_by_pattern`) and write-through cache purging across `POST`, `PUT`, and `DELETE` post endpoints. Verified via a 41-point automated E2E test script checking direct Upstash Redis TTL values, cache invalidation, permission enforcement (401/403), graceful Redis fallback, and regression across comments, likes, and pagination. Learned how to manage cache freshness and prevent stale reads while maintaining database resilience.

@@ -13,9 +13,20 @@ All methods handle Redis failures gracefully:
 This ensures a Redis outage does not destroy the core API.
 
 Step 9 Enhancements:
-  - TTL (Time-To-Live) support on set() (default: 300 seconds / 5 minutes)
+  - TTL (Time-To-Live) support on set() with per-type TTL policy:
+      • Paginated post lists:  60 seconds (POSTS_LIST_TTL)
+      • Individual posts:     300 seconds / 5 minutes (POST_ITEM_TTL)
   - Pattern-based cache invalidation (delete_by_pattern)
   - Specific post invalidation helper (invalidate_post)
+
+Cache invalidation on comment/like mutations:
+  The current cached representations (PostResponse, PaginatedPostResponse) do NOT
+  contain embedded comments or like counts. Therefore, creating, updating, or
+  deleting a comment or like does NOT make the cached post data stale, and no
+  invalidation is required for those mutations at this time. If the response
+  schemas are later expanded to include comment counts or like counts, the
+  corresponding mutation routes must be updated to invalidate the affected
+  post caches.
 """
 
 import json
@@ -25,8 +36,10 @@ from upstash_redis.asyncio import Redis
 
 logger = logging.getLogger(__name__)
 
-# Default Time-To-Live for cached entries (5 minutes = 300 seconds)
-DEFAULT_CACHE_TTL = 300
+# TTL constants — each cache type has its own expiration policy.
+# These match the original Blog Platform project specification.
+POSTS_LIST_TTL = 60      # Paginated post list cache: 60 seconds
+POST_ITEM_TTL = 300      # Individual post cache:     300 seconds (5 minutes)
 
 
 class CacheService:
@@ -65,7 +78,7 @@ class CacheService:
         self,
         key: str,
         value: Any,
-        ttl: Optional[int] = DEFAULT_CACHE_TTL
+        ttl: Optional[int] = None
     ) -> bool:
         """
         Store a value in the cache as a JSON string with an optional TTL (in seconds).
@@ -73,7 +86,8 @@ class CacheService:
         Parameters:
             key: The Redis key.
             value: The Python object to store.
-            ttl: Time-To-Live in seconds (default: 300s). If None, key will not expire.
+            ttl: Time-To-Live in seconds. Callers should pass POSTS_LIST_TTL or
+                 POST_ITEM_TTL explicitly. If None, key will not expire.
 
         Returns True on success, False on failure.
         """
