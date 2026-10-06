@@ -4,7 +4,7 @@ import asyncpg
 import logging
 from src.schemas.post import PostCreate, PostUpdate, PostResponse, PaginatedPostResponse
 from src.services.post_service import PostService
-from src.services.cache_service import CacheService
+from src.services.cache_service import CacheService, POSTS_LIST_TTL, POST_ITEM_TTL
 from src.config.db import get_pool
 from src.config.redis import get_redis_client
 from src.middleware.auth import get_current_user
@@ -49,11 +49,12 @@ async def get_posts(
     cache: CacheService = Depends(get_cache_service)
 ):
     """
-    Cache-aside pattern for paginated post listing with TTL (5 minutes).
+    Cache-aside pattern for paginated post listing.
+    TTL: 60 seconds (POSTS_LIST_TTL) — per the project specification.
     
     1. Check Redis for cached result using page+limit as the cache key.
     2. If HIT: return cached data, set X-Cache: HIT.
-    3. If MISS: fetch from PostgreSQL, store in cache with 300s TTL, set X-Cache: MISS.
+    3. If MISS: fetch from PostgreSQL, store in cache with 60s TTL, set X-Cache: MISS.
     
     Redis failures fall back gracefully to PostgreSQL.
     """
@@ -68,8 +69,8 @@ async def get_posts(
     # Step 2: Cache miss — fetch from PostgreSQL
     result = await service.get_posts(page, limit)
 
-    # Step 3: Store in cache with TTL (fire-and-forget style; failure is non-blocking)
-    await cache.set(cache_key, result, ttl=300)
+    # Step 3: Store in cache with list TTL (fire-and-forget style; failure is non-blocking)
+    await cache.set(cache_key, result, ttl=POSTS_LIST_TTL)
 
     response.headers["X-Cache"] = "MISS"
     return result
@@ -82,7 +83,8 @@ async def get_post(
     cache: CacheService = Depends(get_cache_service)
 ):
     """
-    Cache-aside pattern for individual post retrieval with TTL (5 minutes).
+    Cache-aside pattern for individual post retrieval.
+    TTL: 300 seconds / 5 minutes (POST_ITEM_TTL) — per the project specification.
     
     1. Check Redis for cached post by ID.
     2. If HIT: return cached data, set X-Cache: HIT.
@@ -103,8 +105,8 @@ async def get_post(
     # Step 2: Cache miss — fetch from PostgreSQL (raises 404 if not found)
     result = await service.get_post_by_id(post_id)
 
-    # Step 3: Store in cache with TTL (only reached if post exists)
-    await cache.set(cache_key, result, ttl=300)
+    # Step 3: Store in cache with item TTL (only reached if post exists)
+    await cache.set(cache_key, result, ttl=POST_ITEM_TTL)
 
     response.headers["X-Cache"] = "MISS"
     return result
