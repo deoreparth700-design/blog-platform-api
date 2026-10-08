@@ -151,9 +151,9 @@ class CacheService:
         Called when a post is updated or deleted.
         """
         item_key = self.build_post_item_key(post_id)
-        await self.delete(item_key)
-        await self.invalidate_post_list()
-        return True
+        item_deleted = await self.delete(item_key)
+        list_deleted = await self.invalidate_post_list()
+        return bool(item_deleted and list_deleted)
 
     # ----------------------------------------------------------------
     # Cache key builders
