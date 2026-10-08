@@ -76,9 +76,9 @@ In traditional MVC frameworks (like Spring or Laravel), controllers are heavily 
 | Step 7 | Pagination | Completed & Verified |
 | Step 8 | Redis Integration | Completed & Verified |
 | Step 9 | Cache Invalidation + TTL | Completed & Verified |
-| Step 10 | Automated Testing | Not Implemented |
-| Step 11 | Performance Measurement | Not Implemented |
-| Step 12 | Deployment | Not Implemented |
+| Step 10 | Automated Testing | Completed & Verified |
+| Step 11 | Performance Measurement | Completed & Verified |
+| Step 12 | Deployment | Completed / Deployment Ready |
 
 ==================================================
 
@@ -722,152 +722,354 @@ I learned that cache management requires careful alignment between data volatili
 
 ==================================================
 
-# 5. Current Backend Architecture
+# Step 10 — Automated Testing
 
-As of Step 9, this is the functional, implemented backend system:
+## Status
+Completed & Verified
+
+## Why We Needed This Step
+Production systems require automated regression prevention. Manual testing via curl or ad-hoc scripts is slow, brittle, and incapable of guaranteeing that changes do not break business logic, ownership enforcement, cache invalidation, or HTTP contracts. Furthermore, testing must be completely isolated from live cloud services (Neon, Upstash) so that tests run in milliseconds locally and inside automated GitHub Actions CI pipelines without requiring secrets or network dependencies.
+
+## What We Built
+We designed a comprehensive two-tier automated testing architecture using **pytest**, **pytest-asyncio**, and FastAPI's **TestClient** (HTTPX):
+1. **JWT Isolation System**: Dynamic token generation using an isolated `TEST_JWT_SECRET = "test-only-blog-platform-jwt-secret"` injected via an automatic monkeypatch fixture. Real shell environments and production secrets are never touched.
+2. **In-Memory FakeRedis**: A lightweight in-memory async Redis double matching the Upstash client API (supporting `get`, `set` with TTL simulation, `delete`, `keys` pattern matching, and `ttl`).
+3. **Unit Test Suite (`tests/unit/`)**:
+   - `test_jwt.py`: Valid, expired, malformed, bad signature, missing `userId`, and unset secret conditions.
+   - `test_cache_service.py`: Hits, misses, JSON serialization/deserialization, TTL enforcement (60s list / 300s item), pattern invalidation, fail-open resilience on Redis exceptions, and accurate semantic boolean returns. Fixed semantic bug where `invalidate_post()` was unconditionally returning `True`.
+   - `test_schemas.py`: Pydantic model validation, serialization, required fields, and type constraint enforcement across Post, Comment, and Like schemas.
+   - `test_post_service.py`: Real `PostService` tested with mocked `PostRepository`, verifying UUID conversions, ownership checks (403), existence checks (404), pagination math, and error handling.
+   - `test_comment_service.py`: Real `CommentService` tested with mocked repositories, verifying parent post validation, author authorization, and CRUD flows.
+   - `test_like_service.py`: Real `LikeService` tested with mocked repositories, verifying like creation, duplicate rejection (409 Conflict), unliking (404 on absence), and aggregation.
+4. **API Route Test Suite (`tests/api/`)**:
+   - `test_health.py`: Validates `/health` endpoint response and status.
+   - `test_auth.py`: Tests the actual `get_current_user` dependency against valid, expired, malformed, and signed tokens without mocking authentication away.
+   - `test_posts.py`: Complete HTTP contract tests covering GET list (MISS/HIT, 60s TTL), GET item (MISS/HIT, 300s TTL, 404 not cached), POST create (201, list invalidation), PUT update (200, item + list invalidation, 403 on non-owner), DELETE (204, item + list invalidation, 403 on non-owner), and Redis failure fallback.
+   - `test_comments.py`: Full CRUD routing, parent post existence (404), ownership enforcement (403), and status codes.
+   - `test_likes.py`: POST like (201), duplicate like (409), DELETE unlike (204), missing like (404), and GET count (200).
+   - `test_pagination.py`: Pagination defaults (page=1, limit=10), custom limits, multi-page calculations, and parameter boundaries (`page < 1` -> 422, `limit < 1` -> 422, `limit > 100` -> 422).
+5. **Continuous Integration (`.github/workflows/tests.yml`)**: GitHub Actions workflow running on Python 3.12 without requiring any external cloud secrets.
+
+## Files Created / Modified
+- `pytest.ini`
+- `requirements-dev.txt`
+- `tests/conftest.py`
+- `tests/test_infrastructure_smoke.py`
+- `tests/unit/test_jwt.py`
+- `tests/unit/test_cache_service.py`
+- `tests/unit/test_schemas.py`
+- `tests/unit/test_post_service.py`
+- `tests/unit/test_comment_service.py`
+- `tests/unit/test_like_service.py`
+- `tests/api/test_health.py`
+- `tests/api/test_auth.py`
+- `tests/api/test_posts.py`
+- `tests/api/test_comments.py`
+- `tests/api/test_likes.py`
+- `tests/api/test_pagination.py`
+- `src/services/cache_service.py` (fixed `invalidate_post` return value semantics)
+- `.github/workflows/tests.yml`
+
+## Verification
+Executed full automated test suite:
+```powershell
+pytest
+```
+
+## Actual Result
+```text
+======================= 128 passed, 1 warning in 0.87s ========================
+```
+All **128 tests** across unit and API suites passed in under 1 second with 0 failures.
+
+## What I Learned From This Step
+1. **Architectural Purity in Test Doubles**: Fake services used for route testing should NOT duplicate business logic (such as ownership verification or pagination algorithms); business logic belongs strictly in real service classes tested by unit tests with mocked repositories.
+2. **Fail-Fast Defect Discovery**: Testing `CacheService.invalidate_post()` uncovered a semantic bug where the method was blindly returning `True` even if the underlying key deletion failed. Fixing this made the cache invalidation contract robust.
+3. **True Isolation**: A production-grade test suite must run hermetically in CI without requiring live cloud databases or network connections.
+
+==================================================
+
+# Step 11 — Performance Measurement
+
+## Status
+Completed & Verified
+
+## Why We Needed This Step
+Engineering claims regarding caching optimizations must be backed by empirical data, not theoretical guesses. To validate the real-world value of the Redis cache-aside architecture, we needed automated benchmarking infrastructure that measures exact round-trip request latencies, quantifies the difference between Cold (database query + cache write) and Warm (cache hit) requests, and calculates statistical metrics (mean, median, P95, speedup factor).
+
+## What We Built
+1. **Benchmarking Script (`scripts/benchmark_performance.py`)**:
+   - Measures `GET /api/posts/?page=1&limit=10`.
+   - Supports configurable base URLs, warmup runs, and customizable rounds.
+   - Executes Cold / MISS measurements by explicitly invalidating ONLY the target benchmark cache key (`posts:list:page:1:limit:10`) before each iteration to ensure a clean database hit without touching other keys.
+   - Executes Warm / HIT measurements immediately after priming the cache.
+   - Computes request count, minimum, maximum, mean, median, P95 latency, cache hit rate, and median speedup factor.
+2. **Performance Documentation (`PERFORMANCE.md`)**:
+   - Comprehensive documentation covering methodology, execution environment, empirical statistical results, tail latency analysis, and a discussion of local vs. production network topologies.
+
+## Files Created / Modified
+- `scripts/benchmark_performance.py`
+- `PERFORMANCE.md`
+
+## Actual Benchmark Results
+The benchmark was executed against the running local FastAPI server connected to cloud Neon PostgreSQL and cloud Upstash Redis:
+
+These measurements were obtained from:
+```text
+local developer machine
++
+cloud Neon PostgreSQL
++
+cloud Upstash Redis
+```
+and are not guaranteed production latency.
+
+```text
+====================================================
+Blog Platform API Performance Benchmark
+====================================================
+
+Cold / MISS
+Requests: 20
+Mean:     1158.78 ms
+Median:   1055.98 ms
+P95:      1179.87 ms
+Min:      1027.05 ms
+Max:      3134.42 ms
+Cache MISS rate: 100.0%
+
+Warm / HIT
+Requests: 20
+Mean:     64.94 ms
+Median:   62.58 ms
+P95:      73.93 ms
+Min:      58.27 ms
+Max:      76.57 ms
+Cache HIT rate:  100.0%
+
+Median speedup: 16.87x
+Mean speedup:   17.84x
+====================================================
+```
+
+## What I Learned From This Step
+1. **Measured 16.87x Speedup**: Serving responses directly from Redis reduced median response time from ~1,056 ms down to ~62.5 ms, validating that caching delivers double-digit performance multiples.
+2. **Predictable Tail Latencies**: Cold P95 latency was 1,179.87 ms due to SQL execution and multi-hop cloud WAN round trips. Warm P95 latency was tightly bounded at 73.93 ms.
+3. **Network Realities**: In local-to-cloud testing, network latency accounts for the baseline floor. In a production deployment co-located in the same cloud region as Neon and Upstash, deployment topology may possibly affect absolute latency due to reduced network distance, but benchmark numbers documented here represent actual measured values rather than speculative production figures.
+
+==================================================
+
+# Step 12 — Deployment
+
+## Status
+Completed / Deployment Ready
+
+## Why We Needed This Step
+A backend API is incomplete until it can be reliably, reproducibly, and securely deployed to a cloud environment. Production deployment requires Infrastructure as Code (Blueprint), pinned runtime versions, environment variable management keeping secrets out of Git, and application lifecycle hygiene for graceful shutdowns.
+
+## What We Built
+1. **Render Infrastructure Blueprint (`render.yaml`)**:
+   - Defines a Python Web Service running with `uvicorn src.app:app --host 0.0.0.0 --port $PORT`.
+   - Declares all required secrets (`DATABASE_URL`, `JWT_ACCESS_SECRET`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`) using Render's secure `sync: false` mechanism, ensuring zero credentials enter source control.
+2. **Pinned Python Runtime (`.python-version`)**:
+   - Configured `3.12.10` to guarantee consistent runtime environments between local development, CI, and Render containers.
+3. **Application Lifespan Shutdown Handler (`src/app.py`)**:
+   - Added an `@asynccontextmanager` FastAPI lifespan handler that closes the `asyncpg` database connection pool (`close_pool()`) and cleans up Redis client references (`close_redis_client()`) on container termination. Preserves lazy initialization on startup.
+4. **Production Deployment Guide (`DEPLOYMENT.md`)**:
+   - Comprehensive instructions covering Blueprint deployments, manual configurations, environment variable provisioning, and post-deployment validation across health checks, Swagger documentation (`/docs`), public cache checks, and authenticated routes.
+5. **README Update (`README.md`)**:
+   - Updated documentation to reflect the complete project: corrected stale TTL values (60s list / 300s item), documented all endpoints, testing instructions, benchmark results, and deployment workflows.
+
+## Files Created / Modified
+- `render.yaml`
+- `.python-version`
+- `DEPLOYMENT.md`
+- `src/app.py`
+- `src/server.py`
+- `README.md`
+- `PROJECT_PROGRESS.md`
+
+## Verification
+1. Verified `render.yaml` syntax and environment variable declarations.
+2. Verified `close_pool()` and `close_redis_client()` shutdown handlers.
+3. Verified all regression scripts against the running server:
+   - `scripts/verify_redis.py`: 22 passed, 0 failed
+   - `scripts/verify_cache_invalidation.py`: 20 passed, 0 failed
+   - `scripts/verify_step9.py`: 41 passed, 0 failed
+4. Verified that no secrets are tracked or exposed in Git status/diff.
+
+## What I Learned From This Step
+1. **Infrastructure as Code**: Using declarative YAML blueprints prevents manual configuration drift across cloud environments.
+2. **Zero-Secret Commits**: Production secrets must always be declared as unsynced environment variables populated directly through the hosting provider's secure dashboard.
+3. **Clean Process Termination**: Releasing database connection pools during SIGTERM prevents connection exhaustion on serverless database providers like Neon when new containers are spun up during rolling deployments.
+
+==================================================
+
+# 5. Final Project Architecture
+
+The complete, deployment-ready backend architecture operates as follows:
 
 ```text
 Client
-↓
+   ↓
 FastAPI
-├── Public routes (GET posts (Paginated), GET comments, GET likes, /health)
-└── Protected routes (POST/PUT/DELETE via HTTPBearer)
-↓
-JWT Authentication (intercepts and extracts userId)
-↓
-Cache Service (cache-aside: check Redis before PostgreSQL for GET requests)
-↓ (HIT → return cached)     ↓ (MISS → continue)
-Services (Post, Comment, and Like services enforce business rules & metadata calculations)
-↓
-Repositories (Post, Comment, and Like repositories handle SQL offset constraints)
-↓
-Neon PostgreSQL (async connection pool — source of truth)
-↑
-Cache Service (store result in Redis on MISS)
+   ↓
+JWT Authentication
+   ↓
+Routes
+   ↓
+CacheService / Redis
+   ↓ MISS
+Services
+   ↓
+Repositories
+   ↓
+Neon PostgreSQL
 ```
 
-**Currently Active Resources:**
-- **Posts**: Full CRUD, protected mutations, paginated fetching, Redis caching (GET only).
-- **Comments**: Full CRUD, child to posts, protected mutations.
-- **Likes**: Many-to-many mapping, protected mutations, duplicate prevention.
+### Architectural Roles:
+1. **Client**: Issues HTTP requests with standard headers, pagination parameters, and Bearer tokens.
+2. **FastAPI**: Ingests HTTP traffic, routes requests, performs CORS validation, and enforces Pydantic request body validation.
+3. **JWT Authentication**: Validates stateless HMAC-SHA256 signatures, ensuring caller authenticity and extracting `userId`.
+4. **Routes**: Thin HTTP handlers mapping endpoints to status codes, response schemas, and caching headers.
+5. **CacheService / Redis**: High-performance in-memory cache-aside tier. On cache HIT, requests return in milliseconds with `X-Cache: HIT`. On write mutations (POST/PUT/DELETE), cache entries are selectively purged. All Redis calls fail open gracefully.
+6. **Services**: Domain business logic enforcing author ownership, parent post existence, and duplicate-prevention rules.
+7. **Repositories**: Parameterized SQL query execution utilizing `asyncpg`.
+8. **Neon PostgreSQL**: Authoritative, persistent relational database and the **single source of truth** for all application state.
 
 ==================================================
 
-# 6. Current Project Structure
-
-The repository structure reflecting the current architecture:
+# 6. Final Project Structure
 
 ```text
-c:\Users\deore\projects\blog-platform-api\
-├── .env                  # Environment variables & secrets (NOT in source control)
-├── PROJECT_PROGRESS.md   # This master documentation file
-├── README.md             # Project summary and API endpoint lists
-├── requirements.txt      # Python package dependencies
+blog-platform-api/
+├── .github/
+│   └── workflows/
+│       └── tests.yml                 # GitHub Actions automated test CI
 ├── scripts/
-│   ├── init_db.py        # Database schema initialization script
-│   └── test_connection.py# Database connectivity test script
-└── src/
-    ├── app.py            # FastAPI application instance and router mounting
-    ├── server.py         # Uvicorn entry point
-    ├── config/
-    │   ├── redis.py    # Upstash Redis async client singleton
-    │   └── db.py         # asyncpg connection pool logic
-    ├── controllers/
-    │   └── .gitkeep      # (Intentionally unused to adhere to thin-route architecture)
-    ├── db/
-    │   └── schema.sql    # Raw PostgreSQL schema definitions
-    ├── middleware/
-    │   └── auth.py       # JWT extraction and Depends(get_current_user)
-    ├── repositories/
-    │   ├── post_repository.py
-    │   ├── comment_repository.py
-    │   └── like_repository.py
-    ├── routes/
-    │   ├── posts.py
-    │   ├── comments.py
-    │   └── likes.py
-    ├── schemas/
-    │   ├── post.py       # Pydantic validation models
-    │   ├── comment.py
-    │   └── like.py
-    ├── services/
-    │   ├── cache_service.py  # Redis cache wrapper with JSON serialization
-    │   ├── post_service.py
-    │   ├── comment_service.py
-    │   └── like_service.py
-    └── utils/
-        └── jwt_utils.py  # Cryptographic token decoding
+│   ├── benchmark_performance.py      # Latency measurement script
+│   ├── init_db.py                    # Database schema initialization
+│   ├── test_connection.py            # DB connectivity verification
+│   ├── verify_cache_invalidation.py  # Cache invalidation verification
+│   ├── verify_redis.py               # Cache-aside verification
+│   └── verify_step9.py               # Comprehensive Step 9 verification
+├── src/
+│   ├── app.py                        # FastAPI app, lifespan shutdown, routes
+│   ├── server.py                     # Uvicorn runner entrypoint
+│   ├── config/
+│   │   ├── db.py                     # asyncpg connection pool & shutdown
+│   │   └── redis.py                  # Upstash Redis client & cleanup
+│   ├── controllers/
+│   │   └── .gitkeep
+│   ├── db/
+│   │   └── schema.sql                # Relational DDL definitions
+│   ├── middleware/
+│   │   └── auth.py                   # get_current_user dependency
+│   ├── repositories/
+│   │   ├── comment_repository.py
+│   │   ├── like_repository.py
+│   │   └── post_repository.py
+│   ├── routes/
+│   │   ├── comments.py
+│   │   ├── likes.py
+│   │   └── posts.py
+│   ├── schemas/
+│   │   ├── comment.py
+│   │   ├── like.py
+│   │   └── post.py
+│   ├── services/
+│   │   ├── cache_service.py          # Redis wrapper with TTL & invalidation
+│   │   ├── comment_service.py
+│   │   ├── like_service.py
+│   │   └── post_service.py
+│   └── utils/
+│       └── jwt_utils.py              # JWT token verification
+├── tests/
+│   ├── api/                          # Route, validation & caching tests
+│   │   ├── test_auth.py
+│   │   ├── test_comments.py
+│   │   ├── test_health.py
+│   │   ├── test_likes.py
+│   │   ├── test_pagination.py
+│   │   └── test_posts.py
+│   ├── unit/                         # Unit tests with mocks
+│   │   ├── test_cache_service.py
+│   │   ├── test_comment_service.py
+│   │   ├── test_jwt.py
+│   │   ├── test_like_service.py
+│   │   ├── test_post_service.py
+│   │   └── test_schemas.py
+│   ├── conftest.py                   # Pytest fixtures & FakeRedis
+│   └── test_infrastructure_smoke.py  # Smoke tests
+├── .env.example
+├── .gitignore
+├── .python-version
+├── DEPLOYMENT.md
+├── PERFORMANCE.md
+├── PROJECT_PROGRESS.md
+├── pytest.ini
+├── render.yaml
+├── requirements.txt
+├── requirements-dev.txt
+└── README.md
 ```
 
 ==================================================
 
-# 7. Backend Concepts Learned So Far
+# 7. Backend Concepts Learned Across All 12 Steps
 
-- **REST API**: Representational State Transfer. A standard for structuring network endpoints using HTTP nouns and verbs.
-- **HTTP methods**: Semantic verbs for actions: GET (read), POST (create), PUT (update), DELETE (remove).
-- **FastAPI**: A modern Python framework that parses HTTP requests quickly and natively supports asynchronous execution.
-- **Uvicorn**: An ASGI server that translates raw TCP socket HTTP traffic into Python events for FastAPI.
-- **ASGI**: Asynchronous Server Gateway Interface. The protocol that allows Python web servers to process multiple requests concurrently without blocking.
-- **Dependency Injection**: FastAPI's `Depends()` allows routes to dynamically require logic (like database pools or authentication) to run before the route executes, keeping code DRY.
-- **APIRouter**: A tool to modularize and organize related endpoints (like `/posts`) into separate files before attaching them to the main app.
-- **Pydantic**: A data validation library that ensures JSON request bodies match strict Python schemas, rejecting bad data automatically.
-- **JWT**: JSON Web Tokens. A cryptographic standard for stateless user authentication.
-- **Authentication**: The act of validating *who* a user is (checking the JWT signature).
-- **Authorization**: The act of validating *what* a user can do (checking if `userId` matches `author_id`).
-- **PostgreSQL**: A powerful, open-source relational database engine.
-- **Relational tables**: Storing data in grids of columns and rows that relate to one another.
-- **Primary keys**: A unique identifier for a row (`id`).
-- **Foreign keys**: A column linking to a primary key in another table (`post_id`).
-- **Composite primary keys**: Using two columns together to enforce uniqueness (e.g., `post_id` + `user_id` in the likes table).
-- **Many-to-Many Relationships**: Using junction tables without surrogate IDs to bridge relationships between objects.
-- **Aggregate SQL**: Using functions like `COUNT(*)` to summarize table states.
-- **ON DELETE CASCADE**: A database rule that automatically deletes child rows (comments) when a parent row (post) is deleted.
-- **Indexes**: Database structures that make sorting and searching specific columns extremely fast.
-- **Offset Pagination**: Transforming `page` and `limit` into `OFFSET` SQL queries to partition huge datasets.
-- **Deterministic Sorts**: Relying on unique secondary identifiers in `ORDER BY` to make query offsets behave reliably.
-- **Process Management**: Avoiding pipe buffer deadlocks when routing subprocess standard output logs.
-- **Async programming**: Using `async`/`await` in Python so the CPU can handle other web requests while waiting for network/database responses.
-- **Connection pooling**: Maintaining a cache of open database connections to handle thousands of requests without the overhead of establishing new TCP connections.
-- **asyncpg**: The fastest asyncio driver for communicating with PostgreSQL in Python.
-- **Parameterized SQL**: Passing variables to queries using `$1`, `$2` to completely eliminate SQL injection attacks.
-- **CRUD**: Create, Read, Update, Delete. The four fundamental operations of persistent storage.
-- **UUIDs**: Universally Unique Identifiers. 128-bit identifiers used for decentralized, non-guessable user IDs.
-- **HTTP status codes**: Standardized response numbers. (e.g., 200 OK, 201 Created, 204 No Content, 401 Unauthorized, 403 Forbidden, 404 Not Found, 409 Conflict, 422 Unprocessable Entity).
-- **Layered architecture**: Decoupling logic into thin Routes, orchestrating Services, and dedicated Repositories to create a maintainable, testable codebase.
+- **REST API**: Semantic HTTP verbs (GET, POST, PUT, DELETE) and standardized status codes.
+- **FastAPI & Uvicorn**: High-concurrency ASGI server execution with native `async`/`await` non-blocking I/O.
+- **Pydantic Validation**: Strict schema enforcement, input coercion, and automatic OpenAPI schema generation.
+- **JWT Authentication**: Stateless authentication using HMAC-SHA256 tokens and secret key rotation hygiene.
+- **Authorization & Ownership**: Enforcing domain resource ownership within service layers (403 Forbidden).
+- **Relational Databases & SQL**: Foreign key constraints, cascading deletes (`ON DELETE CASCADE`), indexes, composite primary keys, and parameterized queries avoiding SQL injection.
+- **Connection Pooling**: Managing reusable database connections via `asyncpg` to sustain thousands of concurrent requests.
+- **Offset Pagination**: Deterministic multi-column sorting (`created_at DESC, id DESC`) preventing offset drift.
+- **Cache-Aside Architecture**: Transparent read acceleration where PostgreSQL is the source of truth and Redis acts as an optional speed layer.
+- **Multi-Tier TTL Policies**: Different expiration policies tailored to data volatility (60s list cache vs. 300s item cache).
+- **Wildcard Cache Invalidation**: Purging query variations (`posts:list:*`) on mutation events.
+- **Graceful Degradation / Fail-Open**: Designing cache layers so that Redis failures do not crash the application.
+- **Automated Testing Isolation**: Mocking repositories, using in-memory `FakeRedis`, and monkeypatching JWT secrets to run tests hermetically in CI.
+- **Empirical Benchmarking**: Collecting statistical metrics (mean, median, P95, speedup) using high-resolution monotonic clocks.
+- **Production Deployment**: Cloud hosting on Render using Blueprint IaC (`render.yaml`), pinned Python versions, and zero-secret Git hygiene.
+- **Process Lifespan Hygiene**: Closing database pools and Redis references during SIGTERM to prevent connection leaks.
 
 ==================================================
 
-# 8. Interview Understanding
+# 8. Complete Interview Walkthrough
 
-Based on the implementation up to Step 7, a developer should be able to articulate:
+A developer who has built this project can confidently explain:
 
-- **What the project does**: It is a high-concurrency RESTful API for a blog platform, handling users, posts, comments, and likes securely via JWT authentication, natively supporting paginated data retrieval.
-- **Current architecture**: It uses an N-Tier architecture where HTTP requests hit FastAPI Routes, undergo JWT validation middleware, route to Services for business logic (like ownership checks and paginated metadata calculation), and pass down to Repositories for raw SQL execution.
-- **Why FastAPI**: Selected over Flask because its native async support drastically increases throughput for database-heavy APIs, and Pydantic provides free data validation.
-- **Why PostgreSQL/Neon**: Relational data requires strict integrity (like cascading deletes). Neon was chosen for serverless connection pooling capabilities.
-- **How authentication works**: Clients send an `Authorization: Bearer` token. A FastAPI dependency intercepts the request, uses `PyJWT` with a symmetric secret (`HS256`) to mathematically prove the token was issued by us, and extracts the `userId`.
-- **How authorization works**: Inside the Service layer, the target resource (Post or Comment) is fetched. The system compares the resource's `author_id` to the authenticated JWT `userId`. If they mismatch, the service returns a `403 Forbidden`.
-- **How Posts work**: Posts are the primary resource, managed via full CRUD endpoints utilizing Pydantic schemas for data shaping and parameterized `INSERT`/`UPDATE` SQL queries. Collections of posts are retrieved via page-based offset pagination with deterministic tie-breakers on unique IDs.
-- **How Comments work**: Comments are child resources mapped to Posts via a foreign key. The API checks for post existence before creating comments and relies on PostgreSQL's `ON DELETE CASCADE` to clean them up if the parent post is removed.
-- **How Likes work**: Likes use a many-to-many junction table relying on a `(post_id, user_id)` composite primary key to enforce uniqueness, which is cleanly handled and mapped to `409 Conflict` errors when duplicates are attempted in the API.
-- **How Route → Service → Repository works**: Routes handle HTTP parsing. Services handle rules (auth, existence checks). Repositories handle SQL. This prevents massive spaghetti functions and makes testing isolation possible.
-- **How the database is accessed asynchronously**: A global `asyncpg` connection pool is initialized at startup. Repositories asynchronously `acquire()` a connection, await the SQL execution, and release it back to the pool without blocking the main Python thread.
+1. **System Overview**: "I built a high-performance Blog Platform API using FastAPI, PostgreSQL (Neon), and Redis (Upstash), featuring JWT authentication, resource authorization, cache-aside optimization, automated testing, and deployment readiness on Render."
+2. **N-Tier Layered Architecture**: "I separated concerns into thin Routes (HTTP and validation), Services (business rules and authorization), Repositories (asyncpg SQL queries), and CacheService (Redis caching). This keeps routes declarative and makes business logic easily testable in isolation."
+3. **Caching Strategy**: "I implemented cache-aside caching with distinct TTLs: 60 seconds for paginated lists to prevent staleness across dynamic collections, and 300 seconds for individual posts. On write operations (POST, PUT, DELETE), we execute selective invalidation—purging the specific post key and all list caches using wildcard pattern deletion. Most importantly, all cache operations fail open: if Redis is unreachable, requests fall back to PostgreSQL seamlessly."
+4. **Automated Testing**: "I built a 128-test automated suite using pytest, pytest-asyncio, and FastAPI TestClient. Unit tests test real services with mocked repositories. Route tests use dependency overrides and an in-memory FakeRedis. Tests use a dedicated isolated JWT secret without touching environment variables, enabling CI to run in under 1 second without external secrets or cloud databases."
+5. **Performance Measurement**: "I wrote a benchmark script that empirically compared Cold MISS vs. Warm HIT requests on the paginated post endpoint over 20 iterations. Real measurements showed a 16.87x median speedup (dropping from ~1,056 ms to ~62.5 ms), and reduced P95 latency from 1,179 ms to 73 ms."
+6. **Deployment & Production Hygiene**: "The API is deployment-ready on Render via `render.yaml` Blueprint. Secrets are kept strictly in Render's dashboard (`sync: false`) and `.env` is ignored by Git. On shutdown, a FastAPI lifespan context manager safely drains the database pool and cleans up Redis references."
 
 ==================================================
 
-# 9. Future Roadmap
+# 9. Roadmap Status
 
 | Step | Feature | Status |
 |------|---------|--------|
+| Step 1 | FastAPI Foundation | Completed & Verified |
+| Step 2 | Neon PostgreSQL Database | Completed & Verified |
+| Step 3 | JWT Authentication | Completed & Verified |
+| Step 4 | Posts API | Completed & Verified |
+| Step 5 | Comments API | Completed & Verified |
+| Step 6 | Likes API | Completed & Verified |
+| Step 7 | Pagination | Completed & Verified |
 | Step 8 | Redis Integration | Completed & Verified |
 | Step 9 | Cache Invalidation + TTL | Completed & Verified |
-| Step 10 | Automated Testing | Not Implemented |
-| Step 11 | Performance Measurement | Not Implemented |
-| Step 12 | Deployment | Not Implemented |
+| Step 10 | Automated Testing | Completed & Verified |
+| Step 11 | Performance Measurement | Completed & Verified |
+| Step 12 | Deployment | Completed / Deployment Ready |
 
 ==================================================
 
-# 10. Development Log
+# 10. Complete Development Log
 
 - **Step 1**: Created the foundational server structure. Transitioned from synchronous Flask to asynchronous FastAPI + Uvicorn to support high concurrency. Verified via `/health` endpoint. Learned the ASGI request lifecycle.
 - **Step 2**: Integrated Neon PostgreSQL. Set up `asyncpg` connection pooling and executed table schema creation. Verified via a custom information schema test script. Learned why connection pools are mandatory for backend scale.
@@ -878,3 +1080,6 @@ Based on the implementation up to Step 7, a developer should be able to articula
 - **Step 7**: Implemented Pagination. Transformed list endpoints into paginated boundaries using offset limits and aggregate total queries. Overcame a rigorous process-management `stdout` pipeline deadlock during E2E verification. Learned how to design extensible API responses natively handling data constraints and limits.
 - **Step 8**: Integrated Upstash Redis as a caching layer using the cache-aside pattern. Built `CacheService` with graceful error handling and JSON serialization. Inspected the SDK source code to verify exact GET/SET serialization behavior. Added `X-Cache: HIT/MISS` headers to read endpoints. Verified via a 22-point automated E2E script and confirmed graceful PostgreSQL fallback on Redis failure. Learned how to layer caching transparently without disrupting existing functionality.
 - **Step 9**: Implemented Cache Invalidation and TTL (Time-To-Live). Upgraded cache architecture to use differentiated TTL policies matching project specifications: 60s for paginated post lists (`posts:list:page:{page}:limit:{limit}`) and 300s (5 minutes) for individual posts (`posts:item:{post_id}`). Added pattern-based wildcard invalidation (`delete_by_pattern`) and write-through cache purging across `POST`, `PUT`, and `DELETE` post endpoints. Verified via a 41-point automated E2E test script checking direct Upstash Redis TTL values, cache invalidation, permission enforcement (401/403), graceful Redis fallback, and regression across comments, likes, and pagination. Learned how to manage cache freshness and prevent stale reads while maintaining database resilience.
+- **Step 10**: Designed and implemented full automated test suite using `pytest`, `pytest-asyncio`, and FastAPI `TestClient` across 128 tests (unit and API suites). Added dedicated test-only JWT secret isolation, in-memory `FakeRedis`, mocked repositories, dependency overrides, schema validation tests, and GitHub Actions CI workflow (`.github/workflows/tests.yml`). Discovered and fixed a semantic bug in `CacheService.invalidate_post()` to ensure accurate boolean returns on invalidation operations.
+- **Step 11**: Created empirical benchmarking infrastructure (`scripts/benchmark_performance.py`) and documented results in `PERFORMANCE.md`. Measured cold (MISS) vs. warm (HIT) requests across 20 iterations each. Discovered an actual measured 16.87x median speedup (from 1,055.98 ms down to 62.58 ms) and demonstrated how caching drastically reduces P95 tail latency from 1,179.87 ms to 73.93 ms.
+- **Step 12**: Finalized production deployment readiness for Render Web Service. Authored declarative Blueprint (`render.yaml`) with unsynced secret declarations, pinned Python runtime (`.python-version` 3.12.10), added FastAPI lifespan context manager for clean asyncpg and Redis resource shutdown on SIGTERM, and created comprehensive deployment guide (`DEPLOYMENT.md`). Verified complete regression test suite across all steps.

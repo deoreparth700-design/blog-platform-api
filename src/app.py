@@ -1,11 +1,23 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+
 from src.middleware.auth import get_current_user
 from src.routes.posts import router as posts_router
 from src.routes.comments import router as comments_router
 from src.routes.likes import router as likes_router
+from src.config.db import close_pool
+from src.config.redis import close_redis_client
 
-app = FastAPI()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: lazy initialization is preserved
+    yield
+    # Shutdown: clean up DB connection pool and Redis client reference
+    await close_pool()
+    await close_redis_client()
+
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
