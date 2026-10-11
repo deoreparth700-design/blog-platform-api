@@ -480,8 +480,30 @@ The API now returns a structured JSON payload outlining the exact state of the p
 - If data is actively being inserted or deleted, page boundaries shift, causing items to either be skipped or duplicated as the user navigates between pages.
 
 ### Cursor / Keyset
-*(Conceptually only, not implemented in Step 7)*
-Cursor pagination uses a unique pointer (like the last seen `id` or timestamp) instead of skipping rows mathematically. It is extremely fast even on billions of rows because it seeks directly to the index pointer (`WHERE id < X`), and it prevents missing or duplicate data when the dataset mutates. However, it is harder to implement and removes the ability to jump to an arbitrary page number.
+Cursor pagination uses a unique pointer (like `(created_at, id)`) instead of skipping rows mathematically (`WHERE (created_at, id) < ($1, $2) ORDER BY created_at DESC, id DESC LIMIT $3`). It seeks directly to the index pointer via the composite index `(created_at DESC, id DESC)`, avoiding deep row scans and eliminating duplicate/skipped items when new posts are authored.
+
+### Offset vs Cursor: When Each Breaks
+
+Here is the plain, honest reality of when each pagination method breaks in production:
+
+#### 1. When Offset Breaks
+- **The "Drifting Window" Problem (Data Mutation):**
+  Suppose a user is looking at Page 1 (Posts 10 down to 6). While they are reading, someone publishes 2 brand new posts (Posts 12 and 11). When the user clicks "Page 2" (`OFFSET 5`), Post 6 gets pushed down to index 7 and is shown *again* on Page 2. The user sees an annoying duplicate!
+  Conversely, if 2 posts are deleted while browsing, rows slide up and the user skips posts entirely without ever seeing them.
+- **The "Deep Page Exhaustion" Problem (Database Scan):**
+  If a client requests `page=10000&limit=20`, PostgreSQL cannot magically teleport to row 200,000. It must traverse the index/table, read 200,000 rows, discard 199,980 of them, and return the remaining 20. On large tables with millions of records, deep offset queries spike database CPU, consume disk I/O, and can cause queries to time out.
+
+#### 2. When Cursor Breaks
+- **The "Jump to Page X" Limitation:**
+  You cannot let a user jump straight to "Page 15" or click arbitrary page numbers. Because each query seeks from the previous item's unique key (`WHERE (created_at, id) < ($cursor_created_at, $cursor_id)`), you cannot calculate where Page 15 begins without walking through pages 1 through 14 first.
+- **The "Total Count" Absence:**
+  Keyset queries do not run an expensive `SELECT COUNT(*)`. A cursor feed tells the client whether there are more posts (`has_more: true/false`), but does not display total pages (`total_pages: 50`).
+- **Complex Sorting Requirements:**
+  Keyset pagination requires deterministic, strictly ordered tie-breakers (like `(created_at DESC, id DESC)`). If users need multi-field dynamic sorting (by author, title, like count, or relevance), building and indexing multi-column cursor conditions becomes exponentially more complex.
+
+**Rule of thumb:**
+- Use **Offset** (`/api/posts?page=1&limit=10`) for administrative dashboards, search result catalogs, or tables where users expect page numbers and data is relatively static.
+- Use **Cursor** (`/api/posts/feed?limit=10&cursor=...`) for infinite-scroll feeds (like Twitter/X, Instagram, or blog feeds) where new content is constantly being created and users only scroll downwards.
 
 ## Request / Data Flow
 Client `GET /api/posts?page=2&limit=10`

@@ -165,3 +165,60 @@ async def test_get_post_with_comments_not_found_returns_none(mock_pool_and_conne
     result = await repo.get_post_with_comments(999)
 
     assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_posts_feed_first_page_has_more(mock_pool_and_connection):
+    """get_posts_feed on first page fetches limit + 1, returns limit items and has_more=True."""
+    dummy_pool, mock_conn = mock_pool_and_connection
+    repo = PostRepository(dummy_pool)
+
+    author_id = uuid4()
+    now = datetime.now(timezone.utc)
+    mock_rows = [
+        {"id": 3, "author_id": author_id, "title": "P3", "content": "C3", "created_at": now, "updated_at": now},
+        {"id": 2, "author_id": author_id, "title": "P2", "content": "C2", "created_at": now, "updated_at": now},
+        {"id": 1, "author_id": author_id, "title": "P1", "content": "C1", "created_at": now, "updated_at": now},
+    ]
+    mock_conn.fetch.return_value = mock_rows
+
+    items, has_more = await repo.get_posts_feed(cursor_created_at=None, cursor_id=None, limit=2)
+
+    assert len(items) == 2
+    assert items[0]["id"] == 3
+    assert items[1]["id"] == 2
+    assert has_more is True
+
+    # Assert fetch was called with limit + 1 = 3
+    mock_conn.fetch.assert_awaited_once()
+    args = mock_conn.fetch.await_args[0]
+    assert "WHERE (created_at, id) <" not in args[0]
+    assert args[1] == 3
+
+
+@pytest.mark.asyncio
+async def test_get_posts_feed_with_cursor_last_page(mock_pool_and_connection):
+    """get_posts_feed with cursor executes keyset WHERE condition and returns has_more=False on final page."""
+    dummy_pool, mock_conn = mock_pool_and_connection
+    repo = PostRepository(dummy_pool)
+
+    author_id = uuid4()
+    cursor_dt = datetime.now(timezone.utc)
+    mock_rows = [
+        {"id": 1, "author_id": author_id, "title": "P1", "content": "C1", "created_at": cursor_dt, "updated_at": cursor_dt},
+    ]
+    mock_conn.fetch.return_value = mock_rows
+
+    items, has_more = await repo.get_posts_feed(cursor_created_at=cursor_dt, cursor_id=2, limit=2)
+
+    assert len(items) == 1
+    assert items[0]["id"] == 1
+    assert has_more is False
+
+    mock_conn.fetch.assert_awaited_once()
+    args = mock_conn.fetch.await_args[0]
+    assert "WHERE (created_at, id) < ($1, $2)" in args[0]
+    assert args[1] == cursor_dt
+    assert args[2] == 2
+    assert args[3] == 3
+

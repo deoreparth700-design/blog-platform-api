@@ -215,3 +215,5 @@ def test_cache_key_builders():
     assert CacheService.build_posts_list_key(3, 25) == "posts:list:page:3:limit:25"
     assert CacheService.build_post_item_key(99) == "posts:item:99"
     assert CacheService.build_post_item_key(1) == "posts:item:1"
+    assert CacheService.build_posts_feed_key(None, 10) == "posts:list:cursor:start:limit:10"
+    assert CacheService.build_posts_feed_key("abc123cursor", 20) == "posts:list:cursor:abc123cursor:limit:20"

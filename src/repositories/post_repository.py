@@ -1,4 +1,5 @@
 from typing import List, Optional
+from datetime import datetime
 import asyncpg
 from uuid import UUID
 
@@ -29,6 +30,38 @@ class PostRepository:
             rows = await connection.fetch(query, offset, limit)
             total = await connection.fetchval(count_query)
             return [dict(row) for row in rows], total
+
+    async def get_posts_feed(
+        self,
+        cursor_created_at: Optional[datetime] = None,
+        cursor_id: Optional[int] = None,
+        limit: int = 10
+    ) -> tuple[List[dict], bool]:
+        if cursor_created_at is not None and cursor_id is not None:
+            query = """
+                SELECT id, author_id, title, content, created_at, updated_at
+                FROM posts
+                WHERE (created_at, id) < ($1, $2)
+                ORDER BY created_at DESC, id DESC
+                LIMIT $3
+            """
+            fetch_limit = limit + 1
+            async with self.pool.acquire() as connection:
+                rows = await connection.fetch(query, cursor_created_at, cursor_id, fetch_limit)
+        else:
+            query = """
+                SELECT id, author_id, title, content, created_at, updated_at
+                FROM posts
+                ORDER BY created_at DESC, id DESC
+                LIMIT $1
+            """
+            fetch_limit = limit + 1
+            async with self.pool.acquire() as connection:
+                rows = await connection.fetch(query, fetch_limit)
+
+        has_more = len(rows) > limit
+        items = [dict(row) for row in rows[:limit]]
+        return items, has_more
 
     async def get_post_by_id(self, post_id: int) -> Optional[dict]:
         query = """

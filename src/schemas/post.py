@@ -33,3 +33,8 @@ class PaginatedPostResponse(BaseModel):
     limit: int
     total: int
     total_pages: int
+
+class CursorPaginatedPostResponse(BaseModel):
+    items: list[PostResponse]
+    next_cursor: Optional[str] = None
+    has_more: bool

@@ -281,3 +281,92 @@ async def test_post_service_update_and_delete_do_not_call_get_post_with_comments
     await post_service_with_mock_repo.delete_post(1, USER_A_ID)
     post_service_with_mock_repo.repository.get_post_with_comments.assert_not_called()
     assert post_service_with_mock_repo.repository.get_post_by_id.await_count == 2
+
+
+def test_encode_decode_cursor_roundtrip():
+    """encode_cursor and decode_cursor successfully round-trip created_at and id."""
+    from src.services.post_service import encode_cursor, decode_cursor
+    now = datetime(2026, 10, 11, 12, 0, 0, tzinfo=timezone.utc)
+    post_id = 42
+
+    cursor = encode_cursor(now, post_id)
+    assert isinstance(cursor, str)
+
+    decoded_dt, decoded_id = decode_cursor(cursor)
+    assert decoded_dt == now
+    assert decoded_id == post_id
+
+
+def test_decode_cursor_invalid_formats_raise_400():
+    """decode_cursor raises 400 Bad Request on malformed base64, missing parts, or invalid types."""
+    from src.services.post_service import decode_cursor
+    import base64
+
+    # 1. Non-base64 garbage
+    with pytest.raises(HTTPException) as exc1:
+        decode_cursor("!!!invalid-base64!!!")
+    assert exc1.value.status_code == 400
+    assert "Invalid cursor format" in exc1.value.detail
+
+    # 2. Base64 but no pipe separator
+    no_pipe = base64.urlsafe_b64encode(b"nopipeshere").decode()
+    with pytest.raises(HTTPException) as exc2:
+        decode_cursor(no_pipe)
+    assert exc2.value.status_code == 400
+    assert "Invalid cursor format" in exc2.value.detail
+
+    # 3. Base64 with invalid datetime
+    bad_date = base64.urlsafe_b64encode(b"not-a-date|42").decode()
+    with pytest.raises(HTTPException) as exc3:
+        decode_cursor(bad_date)
+    assert exc3.value.status_code == 400
+    assert "Invalid cursor format" in exc3.value.detail
+
+    # 4. Base64 with invalid ID
+    bad_id = base64.urlsafe_b64encode(b"2026-10-11T12:00:00+00:00|not-an-id").decode()
+    with pytest.raises(HTTPException) as exc4:
+        decode_cursor(bad_id)
+    assert exc4.value.status_code == 400
+    assert "Invalid cursor format" in exc4.value.detail
+
+
+@pytest.mark.asyncio
+async def test_get_posts_feed_first_page_generates_next_cursor(post_service_with_mock_repo):
+    """get_posts_feed returns items, has_more=True, and valid next_cursor on page 1."""
+    now = datetime(2026, 10, 11, 12, 0, 0, tzinfo=timezone.utc)
+    mock_items = [
+        {"id": 2, "title": "Second", "created_at": now},
+        {"id": 1, "title": "First", "created_at": now},
+    ]
+    post_service_with_mock_repo.repository.get_posts_feed.return_value = (mock_items, True)
+
+    result = await post_service_with_mock_repo.get_posts_feed(limit=2, cursor=None)
+
+    assert result["has_more"] is True
+    assert len(result["items"]) == 2
+    assert result["next_cursor"] is not None
+
+    # Decode next_cursor to ensure it matches the last item (id=1)
+    from src.services.post_service import decode_cursor
+    cur_dt, cur_id = decode_cursor(result["next_cursor"])
+    assert cur_dt == now
+    assert cur_id == 1
+
+
+@pytest.mark.asyncio
+async def test_get_posts_feed_last_page_no_next_cursor(post_service_with_mock_repo):
+    """get_posts_feed returns has_more=False and next_cursor=None on the final page."""
+    now = datetime(2026, 10, 11, 12, 0, 0, tzinfo=timezone.utc)
+    mock_items = [
+        {"id": 1, "title": "Last Post", "created_at": now},
+    ]
+    post_service_with_mock_repo.repository.get_posts_feed.return_value = (mock_items, False)
+
+    from src.services.post_service import encode_cursor
+    prev_cursor = encode_cursor(now, 5)
+    result = await post_service_with_mock_repo.get_posts_feed(limit=2, cursor=prev_cursor)
+
+    assert result["has_more"] is False
+    assert len(result["items"]) == 1
+    assert result["next_cursor"] is None
+

@@ -179,6 +179,17 @@ class CacheService:
         return f"posts:list:page:{page}:limit:{limit}"
 
     @staticmethod
+    def build_posts_feed_key(cursor: Optional[str], limit: int) -> str:
+        """
+        Build a deterministic cache key for a cursor-paginated post feed.
+
+        Pattern: posts:list:cursor:{cursor_or_start}:limit:{limit}
+        Example: posts:list:cursor:start:limit:10
+        """
+        cursor_or_start = cursor if cursor else "start"
+        return f"posts:list:cursor:{cursor_or_start}:limit:{limit}"
+
+    @staticmethod
     def build_post_item_key(post_id: int) -> str:
         """
         Build a deterministic cache key for an individual post.
