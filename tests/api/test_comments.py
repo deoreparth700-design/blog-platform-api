@@ -104,21 +104,26 @@ def test_create_comment_parent_post_missing_returns_404(client, auth_headers, mo
 
 
 def test_create_comment_invalidates_post_item_cache_but_not_list_cache(client, auth_headers, mock_comment_service, fake_cache_service):
-    """Creating a comment invalidates posts:item:{post_id} but leaves posts:list:* intact."""
+    """Creating a comment on post A invalidates posts:item:A while posts:item:B and list cache remain intact."""
     mock_comment_service.create_comment.return_value = make_comment_payload(1, 42, USER_A_ID, "New comment")
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
     app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
-    # Seed both item cache and list cache
-    asyncio.run(fake_cache_service.set("posts:item:42", {"id": 42, "title": "Cached Post"}))
-    asyncio.run(fake_cache_service.set("posts:list:page:1:limit:10", {"items": [{"id": 42}]}))
+    # Seed cache for post A, post B, and list cache
+    asyncio.run(fake_cache_service.set("posts:item:42", {"id": 42, "title": "Post A"}))
+    asyncio.run(fake_cache_service.set("posts:item:99", {"id": 99, "title": "Post B"}))
+    asyncio.run(fake_cache_service.set("posts:list:page:1:limit:10", {"items": [{"id": 42}, {"id": 99}]}))
 
     resp = client.post("/api/posts/42/comments", json={"content": "New comment"}, headers=auth_headers)
     assert resp.status_code == 201
 
-    # Item cache must be invalidated
-    cached_item = asyncio.run(fake_cache_service.get("posts:item:42"))
-    assert cached_item is None
+    # Post A cache must be invalidated
+    cached_a = asyncio.run(fake_cache_service.get("posts:item:42"))
+    assert cached_a is None
+
+    # Post B cache must still be present
+    cached_b = asyncio.run(fake_cache_service.get("posts:item:99"))
+    assert cached_b == {"id": 99, "title": "Post B"}
 
     # List cache must NOT be invalidated
     cached_list = asyncio.run(fake_cache_service.get("posts:list:page:1:limit:10"))
@@ -214,22 +219,27 @@ def test_update_comment_empty_or_too_long_returns_422(client, auth_headers, mock
 
 
 def test_update_comment_invalidates_post_item_cache_but_not_list_cache(client, auth_headers, mock_comment_service, fake_cache_service):
-    """Updating a comment invalidates posts:item:{post_id} but leaves posts:list:* intact."""
+    """Updating a comment on post A invalidates posts:item:A while posts:item:B and list cache remain intact."""
     updated = make_comment_payload(1, 42, USER_A_ID, "Edited comment")
     mock_comment_service.update_comment.return_value = updated
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
     app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
-    # Seed both item cache and list cache
-    asyncio.run(fake_cache_service.set("posts:item:42", {"id": 42, "title": "Cached Post"}))
-    asyncio.run(fake_cache_service.set("posts:list:page:1:limit:10", {"items": [{"id": 42}]}))
+    # Seed cache for post A, post B, and list cache
+    asyncio.run(fake_cache_service.set("posts:item:42", {"id": 42, "title": "Post A"}))
+    asyncio.run(fake_cache_service.set("posts:item:99", {"id": 99, "title": "Post B"}))
+    asyncio.run(fake_cache_service.set("posts:list:page:1:limit:10", {"items": [{"id": 42}, {"id": 99}]}))
 
     resp = client.put("/api/comments/1", json={"content": "Edited comment"}, headers=auth_headers)
     assert resp.status_code == 200
 
-    # Item cache must be invalidated
-    cached_item = asyncio.run(fake_cache_service.get("posts:item:42"))
-    assert cached_item is None
+    # Post A cache must be invalidated
+    cached_a = asyncio.run(fake_cache_service.get("posts:item:42"))
+    assert cached_a is None
+
+    # Post B cache must still be present
+    cached_b = asyncio.run(fake_cache_service.get("posts:item:99"))
+    assert cached_b == {"id": 99, "title": "Post B"}
 
     # List cache must NOT be invalidated
     cached_list = asyncio.run(fake_cache_service.get("posts:list:page:1:limit:10"))
@@ -288,22 +298,27 @@ def test_delete_comment_missing_returns_404(client, auth_headers, mock_comment_s
 
 
 def test_delete_comment_invalidates_post_item_cache_but_not_list_cache(client, auth_headers, mock_comment_service, fake_cache_service):
-    """Deleting a comment invalidates posts:item:{post_id} but leaves posts:list:* intact."""
+    """Deleting a comment on post A invalidates posts:item:A while posts:item:B and list cache remain intact."""
     mock_comment_service.get_comment_by_id.return_value = make_comment_payload(1, 42, USER_A_ID)
     mock_comment_service.delete_comment.return_value = True
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
     app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
-    # Seed both item cache and list cache
-    asyncio.run(fake_cache_service.set("posts:item:42", {"id": 42, "title": "Cached Post"}))
-    asyncio.run(fake_cache_service.set("posts:list:page:1:limit:10", {"items": [{"id": 42}]}))
+    # Seed cache for post A, post B, and list cache
+    asyncio.run(fake_cache_service.set("posts:item:42", {"id": 42, "title": "Post A"}))
+    asyncio.run(fake_cache_service.set("posts:item:99", {"id": 99, "title": "Post B"}))
+    asyncio.run(fake_cache_service.set("posts:list:page:1:limit:10", {"items": [{"id": 42}, {"id": 99}]}))
 
     resp = client.delete("/api/comments/1", headers=auth_headers)
     assert resp.status_code == 204
 
-    # Item cache must be invalidated
-    cached_item = asyncio.run(fake_cache_service.get("posts:item:42"))
-    assert cached_item is None
+    # Post A cache must be invalidated
+    cached_a = asyncio.run(fake_cache_service.get("posts:item:42"))
+    assert cached_a is None
+
+    # Post B cache must still be present
+    cached_b = asyncio.run(fake_cache_service.get("posts:item:99"))
+    assert cached_b == {"id": 99, "title": "Post B"}
 
     # List cache must NOT be invalidated
     cached_list = asyncio.run(fake_cache_service.get("posts:list:page:1:limit:10"))

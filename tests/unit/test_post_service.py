@@ -229,3 +229,55 @@ async def test_delete_post_repository_returns_false(post_service_with_mock_repo)
         await post_service_with_mock_repo.delete_post(1, USER_A_ID)
 
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_post_detail_existing(post_service_with_mock_repo):
+    """get_post_detail calls repository.get_post_with_comments."""
+    expected = {"id": 1, "title": "Detail", "comments": [{"id": 10, "content": "Hi"}]}
+    post_service_with_mock_repo.repository.get_post_with_comments.return_value = expected
+
+    result = await post_service_with_mock_repo.get_post_detail(1)
+    assert result == expected
+    post_service_with_mock_repo.repository.get_post_with_comments.assert_awaited_once_with(1)
+    post_service_with_mock_repo.repository.get_post_by_id.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_get_post_detail_missing_404(post_service_with_mock_repo):
+    """get_post_detail raises 404 when get_post_with_comments returns None."""
+    post_service_with_mock_repo.repository.get_post_with_comments.return_value = None
+
+    with pytest.raises(HTTPException) as exc:
+        await post_service_with_mock_repo.get_post_detail(999)
+
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Post not found"
+
+
+@pytest.mark.asyncio
+async def test_post_service_update_and_delete_do_not_call_get_post_with_comments(post_service_with_mock_repo):
+    """PostService update_post and delete_post use lightweight get_post_by_id, NOT get_post_with_comments."""
+    post_service_with_mock_repo.repository.get_post_by_id.return_value = {
+        "id": 1,
+        "author_id": UUID(USER_A_ID),
+        "title": "Old",
+        "content": "Old",
+    }
+    post_service_with_mock_repo.repository.update_post.return_value = {
+        "id": 1,
+        "author_id": UUID(USER_A_ID),
+        "title": "New",
+        "content": "New",
+    }
+    post_service_with_mock_repo.repository.delete_post.return_value = True
+
+    # Test update
+    await post_service_with_mock_repo.update_post(1, USER_A_ID, PostUpdate(title="New"))
+    post_service_with_mock_repo.repository.get_post_with_comments.assert_not_called()
+    assert post_service_with_mock_repo.repository.get_post_by_id.await_count == 1
+
+    # Test delete
+    await post_service_with_mock_repo.delete_post(1, USER_A_ID)
+    post_service_with_mock_repo.repository.get_post_with_comments.assert_not_called()
+    assert post_service_with_mock_repo.repository.get_post_by_id.await_count == 2

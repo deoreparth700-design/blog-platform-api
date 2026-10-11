@@ -35,6 +35,12 @@ class PostService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
         return post
 
+    async def get_post_detail(self, post_id: int) -> dict:
+        post = await self.repository.get_post_with_comments(post_id)
+        if not post:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+        return post
+
     async def update_post(self, post_id: int, user_id: str, post_data: PostUpdate) -> dict:
         # First, ensure the post exists and the user owns it
         post = await self.get_post_by_id(post_id)

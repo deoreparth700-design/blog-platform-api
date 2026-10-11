@@ -271,6 +271,9 @@ class FakePostService:
             "comments": [],
         })
 
+    async def get_post_detail(self, post_id: int) -> dict:
+        return await self.get_post_by_id(post_id)
+
     async def update_post(self, post_id: int, user_id: str, post_data) -> dict:
         return {
             "id": post_id,

@@ -32,6 +32,17 @@ class PostRepository:
 
     async def get_post_by_id(self, post_id: int) -> Optional[dict]:
         query = """
+            SELECT id, author_id, title, content, created_at, updated_at
+            FROM posts
+            WHERE id = $1
+        """
+        async with self.pool.acquire() as connection:
+            row = await connection.fetchrow(query, post_id)
+            return dict(row) if row else None
+
+    async def get_post_with_comments(self, post_id: int) -> Optional[dict]:
+        # Note: comments are ordered by created_at, id and are not paginated yet.
+        query = """
             SELECT 
                 p.id,
                 p.author_id,

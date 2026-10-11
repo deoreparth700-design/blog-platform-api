@@ -103,7 +103,7 @@ async def get_post(
         return cached
 
     # Step 2: Cache miss — fetch from PostgreSQL (raises 404 if not found)
-    result = await service.get_post_by_id(post_id)
+    result = await service.get_post_detail(post_id)
 
     # Step 3: Store in cache with item TTL (only reached if post exists)
     await cache.set(cache_key, result, ttl=POST_ITEM_TTL)
