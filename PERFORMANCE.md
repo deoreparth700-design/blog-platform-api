@@ -129,3 +129,21 @@ and are not guaranteed production latency.
    - However, benchmark numbers documented here represent actual measured values from the test environment, rather than speculative production figures.
 3. **Single-client vs. Concurrency**:
    - This benchmark measured sequential requests to eliminate artificial client contention skew. Under heavy concurrent load, cache-aside behavior may further reduce database load as repeated read queries bypass SQL execution entirely.
+
+---
+
+## 6. GET /api/posts/{id} - Results Pending
+
+This section is reserved for the individual post detail endpoint benchmark:
+```http
+GET /api/posts/{post_id}
+```
+Cache key: `posts:item:{post_id}` (TTL: 300 seconds / `POST_ITEM_TTL`)
+
+### Command to Run
+To execute this benchmark on a running server with a valid post ID (for example, post ID `1`):
+```powershell
+python scripts/benchmark_performance.py http://localhost:5000 --post-id 1
+```
+Results will be recorded here once executed with live cloud credentials.
+

@@ -1019,8 +1019,12 @@ blog-platform-api/
 │   │   ├── test_comment_service.py
 │   │   ├── test_jwt.py
 │   │   ├── test_like_service.py
+│   │   ├── test_post_repository.py
 │   │   ├── test_post_service.py
 │   │   └── test_schemas.py
+│   ├── integration/                  # Real PostgreSQL integration tests
+│   │   ├── conftest.py               # DB pool, schema reset & safety invariant
+│   │   └── test_e2e.py               # 7 end-to-end integration tests
 │   ├── conftest.py                   # Pytest fixtures & FakeRedis
 │   └── test_infrastructure_smoke.py  # Smoke tests
 ├── .env.example
@@ -1038,21 +1042,22 @@ blog-platform-api/
 
 ==================================================
 
-# 7. Backend Concepts Learned Across All 12 Steps
+# 7. Backend Concepts Learned Across All Steps
 
 - **REST API**: Semantic HTTP verbs (GET, POST, PUT, DELETE) and standardized status codes.
 - **FastAPI & Uvicorn**: High-concurrency ASGI server execution with native `async`/`await` non-blocking I/O.
-- **Pydantic Validation**: Strict schema enforcement, input coercion, and automatic OpenAPI schema generation.
-- **JWT Authentication**: Stateless authentication using HMAC-SHA256 tokens and secret key rotation hygiene.
+- **Pydantic Validation**: Strict schema enforcement, input length bounds (`min_length`, `max_length`), and automatic OpenAPI schema generation.
+- **JWT Authentication**: Stateless authentication using HMAC-SHA256 tokens, required `exp` claim validation, and secret key rotation hygiene.
 - **Authorization & Ownership**: Enforcing domain resource ownership within service layers (403 Forbidden).
 - **Relational Databases & SQL**: Foreign key constraints, cascading deletes (`ON DELETE CASCADE`), indexes, composite primary keys, and parameterized queries avoiding SQL injection.
 - **Connection Pooling**: Managing reusable database connections via `asyncpg` to sustain thousands of concurrent requests.
-- **Offset Pagination**: Deterministic multi-column sorting (`created_at DESC, id DESC`) preventing offset drift.
+- **Offset vs Cursor Pagination**: Offset pagination (`page` and `limit`) for numbered pages; Keyset cursor pagination (`created_at DESC, id DESC`) for high-concurrency feeds with stable boundaries and zero scan degradation.
 - **Cache-Aside Architecture**: Transparent read acceleration where PostgreSQL is the source of truth and Redis acts as an optional speed layer.
-- **Multi-Tier TTL Policies**: Different expiration policies tailored to data volatility (60s list cache vs. 300s item cache).
-- **Wildcard Cache Invalidation**: Purging query variations (`posts:list:*`) on mutation events.
+- **Multi-Tier TTL Policies**: Different expiration policies tailored to data volatility (60s list/feed cache vs. 300s item cache).
+- **Wildcard Cache Invalidation**: Purging query variations (`posts:list:*`) on mutation events, and invalidating individual post caches on comment changes.
 - **Graceful Degradation / Fail-Open**: Designing cache layers so that Redis failures do not crash the application.
 - **Automated Testing Isolation**: Mocking repositories, using in-memory `FakeRedis`, and monkeypatching JWT secrets to run tests hermetically in CI.
+- **Real Database Integration Testing**: Hermetic PostgreSQL testing with dedicated `TEST_DATABASE_URL`, schema reset, and strict protection preventing test runs against production `DATABASE_URL`.
 - **Empirical Benchmarking**: Collecting statistical metrics (mean, median, P95, speedup) using high-resolution monotonic clocks.
 - **Production Deployment**: Cloud hosting on Render using Blueprint IaC (`render.yaml`), pinned Python versions, and zero-secret Git hygiene.
 - **Process Lifespan Hygiene**: Closing database pools and Redis references during SIGTERM to prevent connection leaks.
@@ -1065,9 +1070,9 @@ A developer who has built this project can confidently explain:
 
 1. **System Overview**: "I built a high-performance Blog Platform API using FastAPI, PostgreSQL (Neon), and Redis (Upstash), featuring JWT authentication, resource authorization, cache-aside optimization, automated testing, and deployment readiness on Render."
 2. **N-Tier Layered Architecture**: "I separated concerns into thin Routes (HTTP and validation), Services (business rules and authorization), Repositories (asyncpg SQL queries), and CacheService (Redis caching). This keeps routes declarative and makes business logic easily testable in isolation."
-3. **Caching Strategy**: "I implemented cache-aside caching with distinct TTLs: 60 seconds for paginated lists to prevent staleness across dynamic collections, and 300 seconds for individual posts. On write operations (POST, PUT, DELETE), we execute selective invalidation—purging the specific post key and all list caches using wildcard pattern deletion. Most importantly, all cache operations fail open: if Redis is unreachable, requests fall back to PostgreSQL seamlessly."
-4. **Automated Testing**: "I built a 128-test automated suite using pytest, pytest-asyncio, and FastAPI TestClient. Unit tests test real services with mocked repositories. Route tests use dependency overrides and an in-memory FakeRedis. Tests use a dedicated isolated JWT secret without touching environment variables, enabling CI to run in under 1 second without external secrets or cloud databases."
-5. **Performance Measurement**: "I wrote a benchmark script that empirically compared Cold MISS vs. Warm HIT requests on the paginated post endpoint over 20 iterations. Real measurements showed a 16.87x median speedup (dropping from ~1,056 ms to ~62.5 ms), and reduced P95 latency from 1,179 ms to 73 ms."
+3. **Caching Strategy**: "I implemented cache-aside caching with distinct TTLs: 60 seconds for paginated lists and cursor feeds to prevent staleness across dynamic collections, and 300 seconds for individual post details. On write operations (POST, PUT, DELETE), we execute selective invalidation—purging the specific post key and all list caches using wildcard pattern deletion, as well as invalidating post items on comment mutations. Most importantly, all cache operations fail open: if Redis is unreachable, requests fall back to PostgreSQL seamlessly."
+4. **Automated Testing**: "I built an automated suite of 176 tests (169 unit & API tests running in ~1.3 seconds, plus 7 live PostgreSQL integration tests) using pytest, pytest-asyncio, and FastAPI TestClient. Unit tests test real services with mocked repositories. Route tests use dependency overrides and an in-memory FakeRedis. Integration tests run against a real database (with schema reset and table truncation before every test), strictly enforce that TEST_DATABASE_URL cannot match production DATABASE_URL, and automatically run in GitHub Actions with a postgres:16 service container."
+5. **Performance Measurement**: "I wrote a benchmark script that empirically compared Cold MISS vs. Warm HIT requests on the paginated post endpoint over 20 iterations. Real measurements showed a 16.87x median speedup (dropping from ~1,056 ms to ~62.5 ms), and reduced P95 latency from 1,179 ms to 73 ms. The CLI also supports benchmarking individual post details with `--post-id`."
 6. **Deployment & Production Hygiene**: "The API is deployment-ready on Render via `render.yaml` Blueprint. Secrets are kept strictly in Render's dashboard (`sync: false`) and `.env` is ignored by Git. On shutdown, a FastAPI lifespan context manager safely drains the database pool and cleans up Redis references."
 
 ==================================================
@@ -1088,6 +1093,11 @@ A developer who has built this project can confidently explain:
 | Step 10 | Automated Testing | Completed & Verified |
 | Step 11 | Performance Measurement | Completed & Verified |
 | Step 12 | Deployment | Completed / Deployment Ready |
+| Phase 1 | Enterprise Bug Fixes & Security Hardening | Completed & Verified |
+| Phase 2 & 2b | Post Detail LEFT JOIN & Query Separation | Completed & Verified |
+| Phase 3 | Keyset Cursor Pagination & Feed Caching | Completed & Verified |
+| Phase 4 | Real PostgreSQL Integration Suite | Completed & Verified |
+| Phase 5 | Benchmark CLI Extension & Documentation Audit | Completed & Verified |
 
 ==================================================
 
@@ -1105,3 +1115,9 @@ A developer who has built this project can confidently explain:
 - **Step 10**: Designed and implemented full automated test suite using `pytest`, `pytest-asyncio`, and FastAPI `TestClient` across 128 tests (unit and API suites). Added dedicated test-only JWT secret isolation, in-memory `FakeRedis`, mocked repositories, dependency overrides, schema validation tests, and GitHub Actions CI workflow (`.github/workflows/tests.yml`). Discovered and fixed a semantic bug in `CacheService.invalidate_post()` to ensure accurate boolean returns on invalidation operations.
 - **Step 11**: Created empirical benchmarking infrastructure (`scripts/benchmark_performance.py`) and documented results in `PERFORMANCE.md`. Measured cold (MISS) vs. warm (HIT) requests across 20 iterations each. Discovered an actual measured 16.87x median speedup (from 1,055.98 ms down to 62.58 ms) and demonstrated how caching drastically reduces P95 tail latency from 1,179.87 ms to 73.93 ms.
 - **Step 12**: Finalized production deployment readiness for Render Web Service. Authored declarative Blueprint (`render.yaml`) with unsynced secret declarations, pinned Python runtime (`.python-version` 3.12.10), added FastAPI lifespan context manager for clean asyncpg and Redis resource shutdown on SIGTERM, and created comprehensive deployment guide (`DEPLOYMENT.md`). Verified complete regression test suite across all steps.
+- **Phase 1 (Hardening & Security)**: Enforced required `exp` claim on JWT decoding (PyJWT `options={"require": ["exp"]}`), preventing indefinite token replay. Converted like creation to atomic `INSERT ... ON CONFLICT DO NOTHING RETURNING post_id`, eliminating like race conditions. Intercepted `asyncpg.ForeignKeyViolationError` in comments/likes services to return clean 404s. Added Pydantic `Field(min_length=1, max_length=...)` bounds across post and comment schemas (title 200, post content 20000, comment 2000). Pinned dependencies in `requirements.txt` and `requirements-dev.txt`, added clean `.env.example`, and configured CORS with `ALLOWED_ORIGINS` and credential safeguards.
+- **Phase 2 & 2b (Post Detail JOIN & Lookup Separation)**: Extended `GET /api/posts/{id}` to return post details with an embedded `comments` list via a SQL `LEFT JOIN` in `PostRepository.get_post_with_comments`. Separated this from the lightweight `get_post_by_id` query to avoid wasteful comment fetches during likes, unlikes, comment creation, and post update/delete checks. Updated comment mutations to invalidate `posts:item:{post_id}` so comments in post details stay fresh without thrashing list caches.
+- **Phase 3 (Keyset / Cursor Pagination)**: Implemented keyset pagination via `GET /api/posts/feed?limit=10&cursor=<opaque>`. Queried `(created_at, id) < ($1, $2) ORDER BY created_at DESC, id DESC LIMIT $3 + 1` via composite index `idx_posts_created_at_id`. Implemented base64 cursor encoding/decoding (`"created_at_iso|id"`), returning `{items, next_cursor, has_more}`. Integrated Redis caching under `posts:list:cursor:{cursor_or_start}:limit:{limit}` with 60s TTL, automatically purged by `posts:list:*` invalidation. Documented "Offset vs Cursor: When Each Breaks" analysis.
+- **Phase 4 (Real Database Integration Suite)**: Built hermetic integration test suite in `tests/integration/` with safety controls: automatically skips when `TEST_DATABASE_URL` is unset, and aborts with `RuntimeError` if set to production `DATABASE_URL`. Automatically applies `schema.sql` and truncates tables (`RESTART IDENTITY CASCADE`) before each test. Tested 7 end-to-end scenarios including concurrent likes (`asyncio.gather`), pagination, ownership enforcement, cache invalidation, and `ON DELETE CASCADE`. Updated `.github/workflows/tests.yml` with a `postgres:16` service container.
+- **Phase 5 (Benchmark CLI & Documentation Audit)**: Extended `scripts/benchmark_performance.py` with `--post-id` CLI flag to benchmark `GET /api/posts/{id}`. Added results-pending placeholder in `PERFORMANCE.md`. Updated `DEPLOYMENT.md` with post-deployment verification checklist confirming `X-Cache: HIT`. Audited and updated `README.md` and `PROJECT_PROGRESS.md` reflecting 176 total automated tests.
+

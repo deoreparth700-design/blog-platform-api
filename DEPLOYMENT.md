@@ -141,3 +141,14 @@ curl -i -H "Authorization: Bearer <YOUR_JWT_TOKEN>" https://your-service.onrende
 
 - **Graceful Shutdown**: The application implements a FastAPI `lifespan` handler that safely releases database connection pool handles (`close_pool()`) and cleans up the Redis client reference on container SIGTERM/SIGINT.
 - **Fail-Open Redis Resilience**: If Upstash Redis experiences transient connection delays or quota exhaustion, CacheService logs the issue and falls back to PostgreSQL without interrupting user traffic.
+
+---
+
+## 6. Deployment Verification Checklist
+
+After deploying the Web Service on Render:
+- [ ] Health check returns 200 OK (`GET /health`).
+- [ ] Interactive OpenAPI documentation loads cleanly (`GET /docs`).
+- [ ] Authenticated token test succeeds with valid Bearer token (`GET /api/auth-test`).
+- [ ] Confirm X-Cache: HIT on the live URL after deploying (first call to `GET /api/posts/?page=1&limit=10` returns `X-Cache: MISS`, second call returns `X-Cache: HIT`).
+

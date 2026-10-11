@@ -21,6 +21,16 @@ A production-style backend REST API for a blog platform built with **FastAPI**, 
 | **Step 11** | Empirical Performance Measurement & Benchmarking | ✅ Completed & Verified |
 | **Step 12** | Deployment Readiness (Render) | ✅ Completed / Deployment-ready for Render |
 
+### 🔧 Enterprise Hardening & Engineering Upgrades
+
+| Phase | Enhancement Scope | Status |
+| :--- | :--- | :--- |
+| **Phase 1** | Security & Input Hardening (`exp` claim required, atomic like concurrency, FK 404, Pydantic bounds, CORS) | ✅ Completed & Verified |
+| **Phase 2 & 2b** | Post Detail with Comments (`LEFT JOIN`), Lightweight Lookup Separation & Cache Invalidation | ✅ Completed & Verified |
+| **Phase 3** | Keyset / Cursor Pagination (`GET /api/posts/feed`), Base64 Cursors & Feed Caching | ✅ Completed & Verified |
+| **Phase 4** | Real PostgreSQL Integration Suite (`tests/integration/`), DB Isolation & CI Service Container | ✅ Completed & Verified |
+| **Phase 5** | Benchmark CLI Extension (`--post-id`), Checklist Updates & Documentation Audit | ✅ Completed & Verified |
+
 ---
 
 ## 🛠️ Technology Stack
@@ -144,13 +154,16 @@ blog-platform-api/
 Caching is implemented on all post reads with the **cache-aside** pattern and distinct TTL policies:
 
 ### Expiration (TTL) Policies
-- **Paginated post list (`posts:list:*`)**: `60 seconds` (`POSTS_LIST_TTL = 60`)
-- **Individual post (`posts:item:{id}`)**: `300 seconds` / 5 minutes (`POST_ITEM_TTL = 300`)
+- **Paginated post lists & feeds (`posts:list:*`)**: `60 seconds` (`POSTS_LIST_TTL = 60`)
+  - Offset lists: `posts:list:page:{page}:limit:{limit}`
+  - Cursor feeds: `posts:list:cursor:{cursor_or_start}:limit:{limit}`
+- **Individual post details (`posts:item:{id}`)**: `300 seconds` / 5 minutes (`POST_ITEM_TTL = 300`)
 
 ### Invalidation Triggers
-- **`POST /api/posts/`**: Purges all list cache keys (`posts:list:*`) so new posts immediately appear.
-- **`PUT /api/posts/{id}`**: Purges the individual item cache (`posts:item:{id}`) AND all list caches (`posts:list:*`).
-- **`DELETE /api/posts/{id}`**: Purges the individual item cache (`posts:item:{id}`) AND all list caches (`posts:list:*`).
+- **`POST /api/posts/`**: Purges all list and feed cache keys (`posts:list:*`) so new posts immediately appear.
+- **`PUT /api/posts/{id}`**: Purges the individual item cache (`posts:item:{id}`) AND all list/feed caches (`posts:list:*`).
+- **`DELETE /api/posts/{id}`**: Purges the individual item cache (`posts:item:{id}`) AND all list/feed caches (`posts:list:*`).
+- **`POST/PUT/DELETE` comments**: Purges the parent post item cache (`posts:item:{post_id}`) so embedded comments in post detail stay synchronized.
 - **404 Not Found responses are never cached.**
 - `X-Cache` HTTP response header indicates cache status: `HIT` or `MISS`.
 
@@ -169,8 +182,9 @@ Caching is implemented on all post reads with the **cache-aside** pattern and di
 *Note: Trailing slashes are preserved on post collection routes per FastAPI route configuration.*
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :--- | :--- |
-| `GET` | `/api/posts/` | Public | Paginated post listing (`?page=1&limit=10`) |
-| `GET` | `/api/posts/{id}` | Public | Retrieve single post by ID |
+| `GET` | `/api/posts/` | Public | Offset paginated post listing (`?page=1&limit=10`) |
+| `GET` | `/api/posts/feed` | Public | Keyset cursor paginated feed (`?limit=10&cursor=<opaque>`) |
+| `GET` | `/api/posts/{id}` | Public | Retrieve single post detail with embedded comments list |
 | `POST` | `/api/posts/` | Required | Create post (author assigned from JWT) |
 | `PUT` | `/api/posts/{id}` | Required | Update post (author ownership enforced: 403 on mismatch) |
 | `DELETE` | `/api/posts/{id}` | Required | Delete post (author ownership enforced: 403 on mismatch) |
@@ -186,7 +200,7 @@ Caching is implemented on all post reads with the **cache-aside** pattern and di
 ### Likes
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/posts/{post_id}/like` | Required | Like post (returns 409 Conflict if already liked) |
+| `POST` | `/api/posts/{post_id}/like` | Required | Atomic like (returns 409 Conflict if already liked) |
 | `DELETE` | `/api/posts/{post_id}/like` | Required | Unlike post (returns 404 if not liked) |
 | `GET` | `/api/posts/{post_id}/likes` | Public | Get total like count for post |
 
@@ -194,11 +208,11 @@ Caching is implemented on all post reads with the **cache-aside** pattern and di
 
 ## 🧪 Automated Testing
 
-The automated test suite supports both mock-isolated unit/API testing and real PostgreSQL integration testing:
+The automated test suite contains **176 automated tests** (169 unit & API tests, plus 7 live database integration tests):
+- **169 Unit & API Tests**: Run in ~1.3 seconds with complete isolation from cloud credentials using FakeRedis and mock repositories.
+- **7 Live Database Integration Tests**: Run against real PostgreSQL in `tests/integration/` (and automatically in GitHub Actions CI via a postgres service container).
 - **JWT Isolation**: Dedicated `TEST_JWT_SECRET` injected via pytest fixtures without mutating the developer environment.
 - **In-Memory FakeRedis**: Full pattern deletion, TTL tracking, and get/set simulation.
-- **Mock Repositories**: Real service business logic tested without requiring live PostgreSQL.
-- **FastAPI TestClient**: Full HTTP routing, header verification, and status code assertions.
 - **Database Safety Invariant**: Integration tests strictly require `TEST_DATABASE_URL`. If unset, integration tests are automatically skipped. If `TEST_DATABASE_URL` equals production `DATABASE_URL`, tests abort immediately with a `RuntimeError` to prevent data loss.
 
 ### Running Unit and API Tests Only (Fast, No Database Required)
