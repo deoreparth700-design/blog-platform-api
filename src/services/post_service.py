@@ -1,10 +1,34 @@
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime, timezone
+import base64
+import math
 from fastapi import HTTPException, status
 import asyncpg
 from src.repositories.post_repository import PostRepository
 from src.schemas.post import PostCreate, PostUpdate
-import math
+
+def encode_cursor(created_at: datetime, post_id: int) -> str:
+    iso_str = created_at.isoformat() if isinstance(created_at, datetime) else str(created_at)
+    payload = f"{iso_str}|{post_id}"
+    return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("utf-8")
+
+def decode_cursor(cursor: str) -> tuple[datetime, int]:
+    try:
+        padded_cursor = cursor + "=" * (-len(cursor) % 4)
+        decoded_bytes = base64.urlsafe_b64decode(padded_cursor.encode("utf-8"))
+        decoded_str = decoded_bytes.decode("utf-8")
+        parts = decoded_str.split("|")
+        if len(parts) != 2:
+            raise ValueError("Cursor must contain created_at and id separated by '|'")
+        created_at = datetime.fromisoformat(parts[0].replace("Z", "+00:00"))
+        post_id = int(parts[1])
+        return created_at, post_id
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid cursor format: {str(e)}"
+        )
 
 class PostService:
     def __init__(self, pool: asyncpg.Pool):
@@ -27,6 +51,29 @@ class PostService:
             "limit": limit,
             "total": total,
             "total_pages": total_pages
+        }
+
+    async def get_posts_feed(self, limit: int = 10, cursor: Optional[str] = None) -> dict:
+        cursor_created_at = None
+        cursor_id = None
+        if cursor:
+            cursor_created_at, cursor_id = decode_cursor(cursor)
+
+        items, has_more = await self.repository.get_posts_feed(
+            cursor_created_at=cursor_created_at,
+            cursor_id=cursor_id,
+            limit=limit
+        )
+
+        next_cursor = None
+        if has_more and items:
+            last_item = items[-1]
+            next_cursor = encode_cursor(last_item["created_at"], last_item["id"])
+
+        return {
+            "items": items,
+            "next_cursor": next_cursor,
+            "has_more": has_more
         }
 
     async def get_post_by_id(self, post_id: int) -> dict:

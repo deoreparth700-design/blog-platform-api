@@ -465,3 +465,167 @@ def test_redis_failure_falls_back_to_service_without_crashing(client, mock_post_
     assert resp.status_code == 200
     assert resp.headers.get("X-Cache") == "MISS"
     assert resp.json()["title"] == "DB Post"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/posts/feed (Cursor / Keyset Pagination & Caching)
+# ---------------------------------------------------------------------------
+def test_get_posts_feed_first_page_miss_then_hit_and_ttl(client, fake_cache_service, fake_redis, mock_post_service):
+    """
+    GET /api/posts/feed verifies:
+    1. First call: cold cache -> MISS, 60s TTL, X-Cache: MISS.
+    2. Second call: warm cache -> HIT, X-Cache: HIT.
+    3. Returns CursorPaginatedPostResponse {items, next_cursor, has_more}.
+    """
+    post1 = make_post_payload(2, title="Post 2")
+    post2 = make_post_payload(1, title="Post 1")
+    feed_response = {
+        "items": [post1, post2],
+        "next_cursor": "valid_cursor_string",
+        "has_more": True,
+    }
+    mock_post_service.get_posts_feed.return_value = feed_response
+
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    # Cold request -> MISS
+    resp1 = client.get("/api/posts/feed?limit=2")
+    assert resp1.status_code == 200
+    assert resp1.headers.get("X-Cache") == "MISS"
+    data1 = resp1.json()
+    assert len(data1["items"]) == 2
+    assert data1["has_more"] is True
+    assert data1["next_cursor"] == "valid_cursor_string"
+    mock_post_service.get_posts_feed.assert_awaited_once_with(limit=2, cursor=None)
+
+    # Verify TTL <= 60s
+    import asyncio
+    feed_key = CacheService.build_posts_feed_key(None, 2)
+    ttl_val = asyncio.run(fake_redis.ttl(feed_key))
+    assert 0 < ttl_val <= POSTS_LIST_TTL
+
+    # Warm request -> HIT
+    resp2 = client.get("/api/posts/feed?limit=2")
+    assert resp2.status_code == 200
+    assert resp2.headers.get("X-Cache") == "HIT"
+    assert resp2.json() == data1
+    assert mock_post_service.get_posts_feed.await_count == 1
+
+
+def test_get_posts_feed_next_page_and_no_duplicates_or_gaps(client, fake_cache_service, mock_post_service):
+    """
+    Feed pagination with cursor across pages:
+    - Page 1 returns items [3, 2] and next_cursor
+    - Page 2 returns items [1] using next_cursor
+    - No overlapping IDs across pages
+    """
+    post3 = make_post_payload(3, title="Post 3")
+    post2 = make_post_payload(2, title="Post 2")
+    post1 = make_post_payload(1, title="Post 1")
+
+    from src.services.post_service import encode_cursor
+    now = datetime.now(timezone.utc)
+    cursor_page1 = encode_cursor(now, 2)
+
+    page1_payload = {
+        "items": [post3, post2],
+        "next_cursor": cursor_page1,
+        "has_more": True,
+    }
+    page2_payload = {
+        "items": [post1],
+        "next_cursor": None,
+        "has_more": False,
+    }
+
+    async def fake_feed(limit=10, cursor=None):
+        if cursor is None:
+            return page1_payload
+        elif cursor == cursor_page1:
+            return page2_payload
+        raise HTTPException(status_code=400, detail="Invalid cursor format")
+
+    mock_post_service.get_posts_feed.side_effect = fake_feed
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    # Page 1
+    resp1 = client.get("/api/posts/feed?limit=2")
+    assert resp1.status_code == 200
+    d1 = resp1.json()
+    ids_page1 = [p["id"] for p in d1["items"]]
+    assert ids_page1 == [3, 2]
+    assert d1["has_more"] is True
+
+    # Page 2
+    resp2 = client.get(f"/api/posts/feed?limit=2&cursor={d1['next_cursor']}")
+    assert resp2.status_code == 200
+    d2 = resp2.json()
+    ids_page2 = [p["id"] for p in d2["items"]]
+    assert ids_page2 == [1]
+    assert d2["has_more"] is False
+    assert d2["next_cursor"] is None
+
+    # Assert no overlap / gaps
+    assert set(ids_page1).isdisjoint(set(ids_page2))
+
+
+def test_get_posts_feed_last_page(client, fake_cache_service, mock_post_service):
+    """Last page returns has_more=False and next_cursor=None."""
+    mock_post_service.get_posts_feed.return_value = {
+        "items": [make_post_payload(1)],
+        "next_cursor": None,
+        "has_more": False,
+    }
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    resp = client.get("/api/posts/feed?limit=10")
+    assert resp.status_code == 200
+    d = resp.json()
+    assert d["has_more"] is False
+    assert d["next_cursor"] is None
+
+
+def test_get_posts_feed_invalid_cursor_returns_400(client, fake_cache_service, mock_post_service):
+    """GET /api/posts/feed with invalid cursor format returns 400 Bad Request."""
+    mock_post_service.get_posts_feed.side_effect = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor format"
+    )
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    resp = client.get("/api/posts/feed?cursor=not-a-valid-cursor")
+    assert resp.status_code == 400
+    assert "Invalid cursor format" in resp.json()["detail"]
+
+
+def test_get_posts_feed_invalid_limit_returns_422(client, fake_cache_service, mock_post_service):
+    """GET /api/posts/feed with limit < 1 or limit > 100 returns 422."""
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    assert client.get("/api/posts/feed?limit=0").status_code == 422
+    assert client.get("/api/posts/feed?limit=101").status_code == 422
+
+
+def test_create_post_invalidates_feed_cache(client, auth_headers, fake_cache_service, mock_post_service):
+    """Creating a post invalidates all post list caches including cursor feed caches."""
+    import asyncio
+    feed_key = CacheService.build_posts_feed_key(None, 10)
+    asyncio.run(fake_cache_service.set(feed_key, {"items": [], "has_more": False, "next_cursor": None}))
+
+    created_post = make_post_payload(10, author_id=USER_A_ID, title="New", content="New")
+    mock_post_service.create_post.return_value = created_post
+
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    resp = client.post("/api/posts/", json={"title": "New", "content": "New"}, headers=auth_headers)
+    assert resp.status_code == 201
+
+    # Verify feed cache was purged by pattern 'posts:list:*'
+    cached = asyncio.run(fake_cache_service.get(feed_key))
+    assert cached is None
+

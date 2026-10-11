@@ -274,6 +274,14 @@ class FakePostService:
     async def get_post_detail(self, post_id: int) -> dict:
         return await self.get_post_by_id(post_id)
 
+    async def get_posts_feed(self, limit: int = 10, cursor: Optional[str] = None) -> dict:
+        items = list(self.posts.values())
+        return {
+            "items": items[:limit],
+            "next_cursor": None,
+            "has_more": len(items) > limit,
+        }
+
     async def update_post(self, post_id: int, user_id: str, post_data) -> dict:
         return {
             "id": post_id,

@@ -1,8 +1,15 @@
-from typing import List
+from typing import List, Optional
 from fastapi import APIRouter, Depends, status, HTTPException, Query, Response
 import asyncpg
 import logging
-from src.schemas.post import PostCreate, PostUpdate, PostResponse, PaginatedPostResponse, PostDetailResponse
+from src.schemas.post import (
+    PostCreate,
+    PostUpdate,
+    PostResponse,
+    PaginatedPostResponse,
+    PostDetailResponse,
+    CursorPaginatedPostResponse,
+)
 from src.services.post_service import PostService
 from src.services.cache_service import CacheService, POSTS_LIST_TTL, POST_ITEM_TTL
 from src.config.db import get_pool
@@ -70,6 +77,40 @@ async def get_posts(
     result = await service.get_posts(page, limit)
 
     # Step 3: Store in cache with list TTL (fire-and-forget style; failure is non-blocking)
+    await cache.set(cache_key, result, ttl=POSTS_LIST_TTL)
+
+    response.headers["X-Cache"] = "MISS"
+    return result
+
+@router.get("/feed", response_model=CursorPaginatedPostResponse)
+async def get_posts_feed(
+    response: Response,
+    limit: int = Query(10, ge=1, le=100),
+    cursor: Optional[str] = Query(None),
+    service: PostService = Depends(get_post_service),
+    cache: CacheService = Depends(get_cache_service)
+):
+    """
+    Keyset / cursor pagination for post feed.
+    TTL: 60 seconds (POSTS_LIST_TTL) — matches post list caching policy.
+
+    1. Check Redis using posts:list:cursor:{cursor_or_start}:limit:{limit}
+    2. If HIT: return cached, set X-Cache: HIT.
+    3. If MISS: fetch from PostgreSQL using keyset condition (created_at, id) < ($1, $2),
+       store in cache with 60s TTL, set X-Cache: MISS.
+    """
+    cache_key = CacheService.build_posts_feed_key(cursor, limit)
+
+    # Step 1: Try cache
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        response.headers["X-Cache"] = "HIT"
+        return cached
+
+    # Step 2: Cache miss — fetch from PostgreSQL (raises 400 on invalid cursor)
+    result = await service.get_posts_feed(limit=limit, cursor=cursor)
+
+    # Step 3: Store in cache with list TTL
     await cache.set(cache_key, result, ttl=POSTS_LIST_TTL)
 
     response.headers["X-Cache"] = "MISS"
