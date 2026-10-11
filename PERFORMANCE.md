@@ -132,18 +132,61 @@ and are not guaranteed production latency.
 
 ---
 
-## 6. GET /api/posts/{id} - Results Pending
+## 6. GET /api/posts/{id} - Benchmark Results
 
-This section is reserved for the individual post detail endpoint benchmark:
+This section records the empirical performance measurement for the individual post detail endpoint with comments:
 ```http
 GET /api/posts/{post_id}
 ```
 Cache key: `posts:item:{post_id}` (TTL: 300 seconds / `POST_ITEM_TTL`)
 
-### Command to Run
-To execute this benchmark on a running server with a valid post ID (for example, post ID `1`):
+### Executed Command
 ```powershell
-python scripts/benchmark_performance.py http://localhost:5000 --post-id 1
+python scripts/benchmark_performance.py http://localhost:5000 --post-id 87
 ```
-Results will be recorded here once executed with live cloud credentials.
+
+### Actual Benchmark Output
+```text
+====================================================
+Blog Platform API Performance Benchmark
+====================================================
+
+Cold / MISS
+Requests: 20
+Mean:     798.18 ms
+Median:   689.07 ms
+P95:      935.03 ms
+Min:      626.57 ms
+Max:      2765.05 ms
+Cache MISS rate: 100.0%
+
+Warm / HIT
+Requests: 20
+Mean:     49.38 ms
+Median:   46.95 ms
+P95:      63.65 ms
+Min:      38.26 ms
+Max:      64.95 ms
+Cache HIT rate:  100.0%
+
+Median speedup: 14.68x
+Mean speedup:   16.16x
+====================================================
+Notice: These measurements reflect local benchmark testing and network
+latency to cloud PostgreSQL (Neon) and cloud Redis (Upstash).
+====================================================
+```
+
+### Statistical Comparison Table
+
+| Metric | Cold / MISS (PostgreSQL + Redis SET) | Warm / HIT (Redis Cache) | Improvement / Ratio |
+| :--- | :--- | :--- | :--- |
+| **Sample Size** | 20 requests | 20 requests | — |
+| **Cache Hit Rate** | 0.0% (100% MISS) | 100.0% | — |
+| **Minimum Latency** | 626.57 ms | 38.26 ms | **16.38x faster** |
+| **Median Latency** | **689.07 ms** | **46.95 ms** | **14.68x speedup** |
+| **Mean Latency** | **798.18 ms** | **49.38 ms** | **16.16x speedup** |
+| **P95 Latency** | **935.03 ms** | **63.65 ms** | **14.69x speedup** |
+| **Maximum Latency** | 2,765.05 ms | 64.95 ms | **42.57x faster** |
+
 

@@ -15,10 +15,13 @@ d. only the author can delete a post (other user -> 403, author -> 204, then 404
 e. cache invalidation: GET list (MISS), create post, GET list shows the new post (not stale)
 f. GET /posts/{id} includes comments and reflects a newly added comment (not stale)
 g. cascade delete: deleting a post removes its comments and likes
+h. keyset cursor pagination on /api/posts/feed (timestamp ties, feed traversal, invalid cursor)
 """
 
 import os
 import asyncio
+from datetime import datetime, timezone, timedelta
+from uuid import uuid4
 import pytest
 import httpx
 from src.app import app
@@ -306,3 +309,98 @@ async def test_cascade_deletion(integration_client, auth_headers, test_pool):
         assert await conn.fetchval("SELECT COUNT(*) FROM posts WHERE id = $1", post_id) == 0
         assert await conn.fetchval("SELECT COUNT(*) FROM comments WHERE post_id = $1", post_id) == 0
         assert await conn.fetchval("SELECT COUNT(*) FROM likes WHERE post_id = $1", post_id) == 0
+
+
+# ---------------------------------------------------------------------------
+# Test H: Keyset Cursor Pagination on /api/posts/feed
+# ---------------------------------------------------------------------------
+@pytest.mark.asyncio
+async def test_posts_feed_cursor_pagination_with_timestamp_ties(integration_client, test_pool):
+    """
+    Test H:
+    1. Insert 7 posts directly with SQL so that 4 of them share the exact same
+       created_at timestamp, and the others have distinct ones.
+    2. Walk the feed with limit=3 following next_cursor until has_more is false.
+    3. Assert:
+       - Every post appears exactly once (no duplicates, no gaps).
+       - The order is created_at DESC then id DESC.
+       - The last page has next_cursor null.
+       - A bad cursor returns 400.
+    """
+    author_id = uuid4()
+    t_shared = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    t_newest = t_shared + timedelta(minutes=10)
+    t_older_1 = t_shared - timedelta(minutes=5)
+    t_older_2 = t_shared - timedelta(minutes=10)
+
+    # 7 posts: 1 newer, 4 sharing exact same created_at, 2 older
+    posts_to_insert = [
+        {"title": "Post Newest", "created_at": t_newest},
+        {"title": "Post Tied 1", "created_at": t_shared},
+        {"title": "Post Tied 2", "created_at": t_shared},
+        {"title": "Post Tied 3", "created_at": t_shared},
+        {"title": "Post Tied 4", "created_at": t_shared},
+        {"title": "Post Older 1", "created_at": t_older_1},
+        {"title": "Post Older 2", "created_at": t_older_2},
+    ]
+
+    inserted_posts = []
+    async with test_pool.acquire() as conn:
+        for p in posts_to_insert:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO posts (author_id, title, content, created_at, updated_at)
+                VALUES ($1, $2, 'Content for ' || $2, $3, $3)
+                RETURNING id, created_at, title
+                """,
+                author_id,
+                p["title"],
+                p["created_at"],
+            )
+            inserted_posts.append(dict(row))
+
+    inserted_ids = {p["id"] for p in inserted_posts}
+    assert len(inserted_ids) == 7
+
+    # Walk the feed with limit=3 following next_cursor until has_more is false
+    feed_posts = []
+    cursor = None
+    pages = []
+
+    while True:
+        url = "/api/posts/feed?limit=3"
+        if cursor:
+            url += f"&cursor={cursor}"
+        resp = await integration_client.get(url)
+        assert resp.status_code == 200
+        data = resp.json()
+        pages.append(data)
+        feed_posts.extend(data["items"])
+        cursor = data["next_cursor"]
+        if not data["has_more"]:
+            break
+
+    # 1. Assert the last page has next_cursor null
+    assert pages[-1]["next_cursor"] is None
+
+    # 2. Assert every post appears exactly once (no duplicates, no gaps)
+    feed_ids = [p["id"] for p in feed_posts]
+    assert len(feed_ids) == 7
+    assert len(set(feed_ids)) == 7
+    assert set(feed_ids) == inserted_ids
+
+    # 3. Assert the order is created_at DESC then id DESC
+    for i in range(len(feed_posts) - 1):
+        curr_dt = datetime.fromisoformat(feed_posts[i]["created_at"])
+        next_dt = datetime.fromisoformat(feed_posts[i + 1]["created_at"])
+        curr_id = feed_posts[i]["id"]
+        next_id = feed_posts[i + 1]["id"]
+        assert (curr_dt > next_dt) or (curr_dt == next_dt and curr_id > next_id), (
+            f"Ordering violation at index {i}: ({curr_dt}, {curr_id}) vs ({next_dt}, {next_id})"
+        )
+
+    # 4. Assert a bad cursor returns 400
+    bad_resp = await integration_client.get("/api/posts/feed?cursor=invalid_not_base64_cursor!")
+    assert bad_resp.status_code == 400
+    assert "Invalid cursor format" in bad_resp.json().get("detail", "")
+
