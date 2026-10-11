@@ -37,7 +37,7 @@ if PROD_DB_URL and TEST_DB_URL == PROD_DB_URL:
 # ---------------------------------------------------------------------------
 # Test A: Create Post Auth & Unauth
 # ---------------------------------------------------------------------------
-def test_create_post_authenticated_and_unauthenticated(integration_client, auth_headers):
+async def test_create_post_authenticated_and_unauthenticated(integration_client, auth_headers):
     """
     Test A:
     - Creating a post with a valid token returns 201 Created and persists the row.
@@ -46,11 +46,11 @@ def test_create_post_authenticated_and_unauthenticated(integration_client, auth_
     payload = {"title": "Integration Post", "content": "Integration Content"}
 
     # 1. Unauthenticated request -> 401
-    resp_unauth = integration_client.post("/api/posts/", json=payload)
+    resp_unauth = await integration_client.post("/api/posts/", json=payload)
     assert resp_unauth.status_code == 401
 
     # 2. Authenticated request -> 201
-    resp_auth = integration_client.post("/api/posts/", json=payload, headers=auth_headers)
+    resp_auth = await integration_client.post("/api/posts/", json=payload, headers=auth_headers)
     assert resp_auth.status_code == 201
     data = resp_auth.json()
     assert data["id"] is not None
@@ -61,7 +61,7 @@ def test_create_post_authenticated_and_unauthenticated(integration_client, auth_
 # ---------------------------------------------------------------------------
 # Test B: Pagination Page Size & Newest-First Ordering
 # ---------------------------------------------------------------------------
-def test_pagination_page_size_and_newest_first_order(integration_client, auth_headers):
+async def test_pagination_page_size_and_newest_first_order(integration_client, auth_headers):
     """
     Test B:
     Create 25 posts in the real database:
@@ -70,7 +70,7 @@ def test_pagination_page_size_and_newest_first_order(integration_client, auth_he
     """
     # Create 25 posts sequentially
     for i in range(1, 26):
-        res = integration_client.post(
+        res = await integration_client.post(
             "/api/posts/",
             json={"title": f"Post {i:02d}", "content": f"Content {i}"},
             headers=auth_headers,
@@ -78,7 +78,7 @@ def test_pagination_page_size_and_newest_first_order(integration_client, auth_he
         assert res.status_code == 201
 
     # Fetch Page 1 with limit=10
-    resp_p1 = integration_client.get("/api/posts/?page=1&limit=10")
+    resp_p1 = await integration_client.get("/api/posts/?page=1&limit=10")
     assert resp_p1.status_code == 200
     data_p1 = resp_p1.json()
 
@@ -93,7 +93,7 @@ def test_pagination_page_size_and_newest_first_order(integration_client, auth_he
     assert ids == list(range(25, 15, -1))
 
     # Fetch Page 3 with limit=10
-    resp_p3 = integration_client.get("/api/posts/?page=3&limit=10")
+    resp_p3 = await integration_client.get("/api/posts/?page=3&limit=10")
     assert resp_p3.status_code == 200
     data_p3 = resp_p3.json()
     assert len(data_p3["items"]) == 5
@@ -112,21 +112,21 @@ async def test_like_duplicate_prevention_and_concurrency(integration_client, aut
     2. Concurrent liking: two requests via asyncio.gather -> exactly one 201, one 409, never 500.
     """
     # Create Post 1 for sequential testing
-    res1 = integration_client.post("/api/posts/", json={"title": "Like Post 1", "content": "Content"}, headers=auth_headers)
+    res1 = await integration_client.post("/api/posts/", json={"title": "Like Post 1", "content": "Content"}, headers=auth_headers)
     assert res1.status_code == 201
     post1_id = res1.json()["id"]
 
     # 1. Sequential duplicate like
-    like1 = integration_client.post(f"/api/posts/{post1_id}/like", headers=auth_headers)
+    like1 = await integration_client.post(f"/api/posts/{post1_id}/like", headers=auth_headers)
     assert like1.status_code == 201
     assert like1.json()["message"] == "Post liked"
 
-    like2 = integration_client.post(f"/api/posts/{post1_id}/like", headers=auth_headers)
+    like2 = await integration_client.post(f"/api/posts/{post1_id}/like", headers=auth_headers)
     assert like2.status_code == 409
     assert like2.json()["detail"] == "Post already liked"
 
     # Create Post 2 for concurrent like testing
-    res2 = integration_client.post("/api/posts/", json={"title": "Like Post 2", "content": "Content"}, headers=auth_headers)
+    res2 = await integration_client.post("/api/posts/", json={"title": "Like Post 2", "content": "Content"}, headers=auth_headers)
     assert res2.status_code == 201
     post2_id = res2.json()["id"]
 
@@ -144,7 +144,7 @@ async def test_like_duplicate_prevention_and_concurrency(integration_client, aut
 # ---------------------------------------------------------------------------
 # Test D: Ownership Enforcement on Post Deletion
 # ---------------------------------------------------------------------------
-def test_post_deletion_ownership_enforcement(integration_client, auth_headers, user_b_headers):
+async def test_post_deletion_ownership_enforcement(integration_client, auth_headers, user_b_headers):
     """
     Test D:
     - Author A creates a post.
@@ -152,27 +152,27 @@ def test_post_deletion_ownership_enforcement(integration_client, auth_headers, u
     - Author A deletes it -> 204 No Content.
     - Subsequent fetch -> 404 Not Found.
     """
-    res = integration_client.post("/api/posts/", json={"title": "Owner Post", "content": "Author A"}, headers=auth_headers)
+    res = await integration_client.post("/api/posts/", json={"title": "Owner Post", "content": "Author A"}, headers=auth_headers)
     assert res.status_code == 201
     post_id = res.json()["id"]
 
     # User B attempts delete -> 403
-    del_forbidden = integration_client.delete(f"/api/posts/{post_id}", headers=user_b_headers)
+    del_forbidden = await integration_client.delete(f"/api/posts/{post_id}", headers=user_b_headers)
     assert del_forbidden.status_code == 403
 
     # Author A deletes -> 204
-    del_owner = integration_client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+    del_owner = await integration_client.delete(f"/api/posts/{post_id}", headers=auth_headers)
     assert del_owner.status_code == 204
 
     # Subsequent GET -> 404
-    get_gone = integration_client.get(f"/api/posts/{post_id}")
+    get_gone = await integration_client.get(f"/api/posts/{post_id}")
     assert get_gone.status_code == 404
 
 
 # ---------------------------------------------------------------------------
 # Test E: Cache Invalidation on Post Creation
 # ---------------------------------------------------------------------------
-def test_cache_invalidation_list_after_post_create(integration_client, auth_headers):
+async def test_cache_invalidation_list_after_post_create(integration_client, auth_headers):
     """
     Test E:
     1. GET /api/posts/ returns cold cache (MISS).
@@ -181,18 +181,18 @@ def test_cache_invalidation_list_after_post_create(integration_client, auth_head
     4. Third GET returns fresh data including the new post (MISS).
     """
     # Step 1: Initial GET -> MISS
-    resp1 = integration_client.get("/api/posts/?page=1&limit=10")
+    resp1 = await integration_client.get("/api/posts/?page=1&limit=10")
     assert resp1.status_code == 200
     assert resp1.headers.get("X-Cache") == "MISS"
     assert resp1.json()["total"] == 0
 
     # Step 2: Second GET -> HIT
-    resp2 = integration_client.get("/api/posts/?page=1&limit=10")
+    resp2 = await integration_client.get("/api/posts/?page=1&limit=10")
     assert resp2.status_code == 200
     assert resp2.headers.get("X-Cache") == "HIT"
 
     # Step 3: Create post
-    create_res = integration_client.post(
+    create_res = await integration_client.post(
         "/api/posts/",
         json={"title": "Cache Breaker", "content": "New content"},
         headers=auth_headers,
@@ -201,7 +201,7 @@ def test_cache_invalidation_list_after_post_create(integration_client, auth_head
     new_id = create_res.json()["id"]
 
     # Step 4: Third GET -> Cache was invalidated, returns MISS and reflects new post
-    resp3 = integration_client.get("/api/posts/?page=1&limit=10")
+    resp3 = await integration_client.get("/api/posts/?page=1&limit=10")
     assert resp3.status_code == 200
     assert resp3.headers.get("X-Cache") == "MISS"
     data3 = resp3.json()
@@ -212,7 +212,7 @@ def test_cache_invalidation_list_after_post_create(integration_client, auth_head
 # ---------------------------------------------------------------------------
 # Test F: Post Detail Reflects Newly Created Comment
 # ---------------------------------------------------------------------------
-def test_post_detail_reflects_new_comment(integration_client, auth_headers):
+async def test_post_detail_reflects_new_comment(integration_client, auth_headers):
     """
     Test F:
     1. Create post.
@@ -222,7 +222,7 @@ def test_post_detail_reflects_new_comment(integration_client, auth_headers):
     5. Third GET /api/posts/{id} -> MISS and reflects the newly added comment.
     """
     # Step 1: Create post
-    post_res = integration_client.post(
+    post_res = await integration_client.post(
         "/api/posts/",
         json={"title": "Detail Post", "content": "Body"},
         headers=auth_headers,
@@ -231,18 +231,18 @@ def test_post_detail_reflects_new_comment(integration_client, auth_headers):
     post_id = post_res.json()["id"]
 
     # Step 2: Cold GET -> MISS (0 comments)
-    get1 = integration_client.get(f"/api/posts/{post_id}")
+    get1 = await integration_client.get(f"/api/posts/{post_id}")
     assert get1.status_code == 200
     assert get1.headers.get("X-Cache") == "MISS"
     assert get1.json()["comments"] == []
 
     # Step 3: Warm GET -> HIT
-    get2 = integration_client.get(f"/api/posts/{post_id}")
+    get2 = await integration_client.get(f"/api/posts/{post_id}")
     assert get2.status_code == 200
     assert get2.headers.get("X-Cache") == "HIT"
 
     # Step 4: Create comment (invalidates posts:item:{post_id})
-    comment_res = integration_client.post(
+    comment_res = await integration_client.post(
         f"/api/posts/{post_id}/comments",
         json={"content": "Fresh comment"},
         headers=auth_headers,
@@ -251,7 +251,7 @@ def test_post_detail_reflects_new_comment(integration_client, auth_headers):
     comment_id = comment_res.json()["id"]
 
     # Step 5: Third GET -> MISS and includes the comment
-    get3 = integration_client.get(f"/api/posts/{post_id}")
+    get3 = await integration_client.get(f"/api/posts/{post_id}")
     assert get3.status_code == 200
     assert get3.headers.get("X-Cache") == "MISS"
     comments = get3.json()["comments"]
@@ -271,7 +271,7 @@ async def test_cascade_deletion(integration_client, auth_headers, test_pool):
     PostgreSQL ON DELETE CASCADE constraint cleanly removes child comment and like rows.
     """
     # 1. Create post
-    post_res = integration_client.post(
+    post_res = await integration_client.post(
         "/api/posts/",
         json={"title": "Parent Post", "content": "Will be deleted"},
         headers=auth_headers,
@@ -280,7 +280,7 @@ async def test_cascade_deletion(integration_client, auth_headers, test_pool):
     post_id = post_res.json()["id"]
 
     # 2. Add comment
-    c_res = integration_client.post(
+    c_res = await integration_client.post(
         f"/api/posts/{post_id}/comments",
         json={"content": "Child comment"},
         headers=auth_headers,
@@ -288,7 +288,7 @@ async def test_cascade_deletion(integration_client, auth_headers, test_pool):
     assert c_res.status_code == 201
 
     # 3. Add like
-    l_res = integration_client.post(f"/api/posts/{post_id}/like", headers=auth_headers)
+    l_res = await integration_client.post(f"/api/posts/{post_id}/like", headers=auth_headers)
     assert l_res.status_code == 201
 
     # Verify rows exist in PostgreSQL directly
@@ -298,7 +298,7 @@ async def test_cascade_deletion(integration_client, auth_headers, test_pool):
         assert await conn.fetchval("SELECT COUNT(*) FROM likes WHERE post_id = $1", post_id) == 1
 
     # 4. Delete the parent post
-    del_res = integration_client.delete(f"/api/posts/{post_id}", headers=auth_headers)
+    del_res = await integration_client.delete(f"/api/posts/{post_id}", headers=auth_headers)
     assert del_res.status_code == 204
 
     # 5. Verify all child rows were deleted by PostgreSQL cascade

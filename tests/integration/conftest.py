@@ -11,10 +11,11 @@ Safety rules:
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse, parse_qsl, urlencode, urlunparse
 import pytest
 import asyncpg
 from dotenv import load_dotenv
-from starlette.testclient import TestClient
+import httpx
 
 from src.app import app
 from src.config.db import get_pool
@@ -37,18 +38,27 @@ if PROD_DB_URL and TEST_DB_URL == PROD_DB_URL:
     raise RuntimeError("TEST_DATABASE_URL cannot be identical to production DATABASE_URL")
 
 
-@pytest.fixture(scope="session")
-def anyio_backend():
-    return "asyncio"
+def _strip_channel_binding(url: str) -> str:
+    parsed = urlparse(url)
+    params = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k != "channel_binding"]
+    return urlunparse(parsed._replace(query=urlencode(params)))
 
 
-@pytest.fixture(scope="session")
+CLEANED_TEST_DB_URL = _strip_channel_binding(TEST_DB_URL)
+
+_schema_applied = False
+
+
+@pytest.fixture
 async def test_pool():
-    """Create a persistent connection pool to the dedicated test database."""
-    pool = await asyncpg.create_pool(TEST_DB_URL)
-    schema_path = Path(__file__).resolve().parent.parent.parent / "src" / "db" / "schema.sql"
-    async with pool.acquire() as conn:
-        await conn.execute(schema_path.read_text(encoding="utf-8"))
+    """Create a connection pool to the dedicated test database in the current event loop."""
+    global _schema_applied
+    pool = await asyncpg.create_pool(CLEANED_TEST_DB_URL)
+    if not _schema_applied:
+        schema_path = Path(__file__).resolve().parent.parent.parent / "src" / "db" / "schema.sql"
+        async with pool.acquire() as conn:
+            await conn.execute(schema_path.read_text(encoding="utf-8"))
+        _schema_applied = True
     yield pool
     await pool.close()
 
@@ -68,13 +78,13 @@ def integration_cache() -> CacheService:
 
 
 @pytest.fixture
-def integration_client(test_pool, integration_cache):
+async def integration_client(test_pool, integration_cache):
     """
-    FastAPI TestClient wired to the real PostgreSQL test pool and FakeRedis.
-    Guarantees cleanup of dependency overrides.
+    httpx.AsyncClient wired to the real PostgreSQL test pool and FakeRedis via ASGITransport.
+    Runs in the same event loop as test_pool and guarantees cleanup of dependency overrides.
     """
     app.dependency_overrides[get_pool] = lambda: test_pool
     app.dependency_overrides[get_cache_service] = lambda: integration_cache
-    with TestClient(app) as client:
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
         yield client
     app.dependency_overrides.clear()
