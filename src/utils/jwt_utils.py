@@ -15,7 +15,8 @@ def verify_jwt_token(token: str) -> dict:
         payload = jwt.decode(
             token,
             secret_key,
-            algorithms=["HS256"]
+            algorithms=["HS256"],
+            options={"require": ["exp"]}
         )
         
         if "userId" not in payload:

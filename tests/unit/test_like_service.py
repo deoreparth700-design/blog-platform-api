@@ -37,7 +37,7 @@ def like_service_with_mock_repos():
 async def test_like_existing_post(like_service_with_mock_repos):
     """like_post creates like when post exists and user has not liked it yet."""
     like_service_with_mock_repos.post_repository.get_post_by_id.return_value = {"id": 1}
-    like_service_with_mock_repos.repository.like_exists.return_value = False
+    like_service_with_mock_repos.repository.create_like.return_value = 1
 
     result = await like_service_with_mock_repos.like_post(1, USER_A_ID)
 
@@ -70,15 +70,29 @@ async def test_like_invalid_user_uuid(like_service_with_mock_repos):
 
 @pytest.mark.asyncio
 async def test_duplicate_like_conflict(like_service_with_mock_repos):
-    """like_post raises 409 Conflict when user has already liked the post."""
+    """like_post raises 409 Conflict when atomic insert returns None."""
     like_service_with_mock_repos.post_repository.get_post_by_id.return_value = {"id": 1}
-    like_service_with_mock_repos.repository.like_exists.return_value = True
+    like_service_with_mock_repos.repository.create_like.return_value = None
 
     with pytest.raises(HTTPException) as exc:
         await like_service_with_mock_repos.like_post(1, USER_A_ID)
 
     assert exc.value.status_code == 409
     assert exc.value.detail == "Post already liked"
+
+
+@pytest.mark.asyncio
+async def test_like_post_foreign_key_violation(like_service_with_mock_repos):
+    """like_post raises 404 when post was deleted between check and insert."""
+    import asyncpg
+    like_service_with_mock_repos.post_repository.get_post_by_id.return_value = {"id": 1}
+    like_service_with_mock_repos.repository.create_like.side_effect = asyncpg.ForeignKeyViolationError("foreign key violation")
+
+    with pytest.raises(HTTPException) as exc:
+        await like_service_with_mock_repos.like_post(1, USER_A_ID)
+
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Post not found"
 
 
 @pytest.mark.asyncio

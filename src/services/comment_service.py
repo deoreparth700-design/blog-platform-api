@@ -21,7 +21,10 @@ class CommentService:
         except ValueError:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID format")
 
-        return await self.repository.create_comment(post_id, author_uuid, comment_data.content)
+        try:
+            return await self.repository.create_comment(post_id, author_uuid, comment_data.content)
+        except asyncpg.ForeignKeyViolationError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
     async def get_comments_by_post_id(self, post_id: int) -> List[dict]:
         post = await self.post_repository.get_post_by_id(post_id)

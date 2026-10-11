@@ -37,6 +37,45 @@ def test_post_create_missing_required_fields():
         PostCreate(content="Only Content")  # missing title
 
 
+def test_post_create_field_length_validation():
+    """PostCreate rejects empty strings or strings exceeding length boundaries."""
+    # Empty title
+    with pytest.raises(ValidationError):
+        PostCreate(title="", content="Valid content")
+
+    # Title exceeding 200 characters
+    with pytest.raises(ValidationError):
+        PostCreate(title="a" * 201, content="Valid content")
+
+    # Empty content
+    with pytest.raises(ValidationError):
+        PostCreate(title="Valid title", content="")
+
+    # Content exceeding 20,000 characters
+    with pytest.raises(ValidationError):
+        PostCreate(title="Valid title", content="a" * 20001)
+
+    # Valid boundary lengths
+    p = PostCreate(title="a" * 200, content="a" * 20000)
+    assert len(p.title) == 200
+    assert len(p.content) == 20000
+
+
+def test_post_update_field_length_validation():
+    """PostUpdate rejects empty strings or strings exceeding length boundaries."""
+    with pytest.raises(ValidationError):
+        PostUpdate(title="")
+
+    with pytest.raises(ValidationError):
+        PostUpdate(title="a" * 201)
+
+    with pytest.raises(ValidationError):
+        PostUpdate(content="")
+
+    with pytest.raises(ValidationError):
+        PostUpdate(content="a" * 20001)
+
+
 def test_post_update_valid_partial():
     """PostUpdate allows partial or full updates, defaulting fields to None."""
     # Title only
@@ -130,6 +169,27 @@ def test_comment_create_missing_content():
     """CommentCreate rejects missing content."""
     with pytest.raises(ValidationError):
         CommentCreate()
+
+
+def test_comment_create_field_length_validation():
+    """CommentCreate rejects empty content or content exceeding 2000 chars."""
+    with pytest.raises(ValidationError):
+        CommentCreate(content="")
+
+    with pytest.raises(ValidationError):
+        CommentCreate(content="a" * 2001)
+
+    c = CommentCreate(content="a" * 2000)
+    assert len(c.content) == 2000
+
+
+def test_comment_update_field_length_validation():
+    """CommentUpdate rejects empty content or content exceeding 2000 chars."""
+    with pytest.raises(ValidationError):
+        CommentUpdate(content="")
+
+    with pytest.raises(ValidationError):
+        CommentUpdate(content="a" * 2001)
 
 
 def test_comment_update_valid():

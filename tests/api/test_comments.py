@@ -71,6 +71,16 @@ def test_create_comment_malformed_body_returns_422(client, auth_headers, mock_co
     assert resp.status_code == 422
 
 
+def test_create_comment_empty_or_too_long_returns_422(client, auth_headers, mock_comment_service):
+    """Creating a comment with empty or oversized content returns 422."""
+    app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+
+    # Empty content
+    assert client.post("/api/posts/1/comments", json={"content": ""}, headers=auth_headers).status_code == 422
+    # Content > 2000
+    assert client.post("/api/posts/1/comments", json={"content": "a" * 2001}, headers=auth_headers).status_code == 422
+
+
 def test_create_comment_parent_post_missing_returns_404(client, auth_headers, mock_comment_service):
     """Creating a comment on a non-existent post returns 404."""
     mock_comment_service.create_comment.side_effect = HTTPException(
@@ -154,6 +164,16 @@ def test_update_comment_missing_returns_404(client, auth_headers, mock_comment_s
 
     resp = client.put("/api/comments/999", json={"content": "Edit"}, headers=auth_headers)
     assert resp.status_code == 404
+
+
+def test_update_comment_empty_or_too_long_returns_422(client, auth_headers, mock_comment_service):
+    """Updating a comment with empty or oversized content returns 422."""
+    app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+
+    # Empty content
+    assert client.put("/api/comments/1", json={"content": ""}, headers=auth_headers).status_code == 422
+    # Content > 2000
+    assert client.put("/api/comments/1", json={"content": "a" * 2001}, headers=auth_headers).status_code == 422
 
 
 # ---------------------------------------------------------------------------
