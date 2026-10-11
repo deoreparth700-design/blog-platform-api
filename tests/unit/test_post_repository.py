@@ -1,10 +1,12 @@
 """
 Unit Tests for PostRepository (src/repositories/post_repository.py).
 
-Tests the LEFT JOIN query in get_post_by_id:
-- Post with multiple comments: returns post dict with comments list ordered by created_at, id
-- Post with no comments: LEFT JOIN NULL comment row is skipped, returns comments: []
-- Post not found: returns None
+Tests:
+1. get_post_by_id: lightweight single-table query (no JOIN, no comments)
+2. get_post_with_comments: LEFT JOIN query returning comments list:
+   - Post with multiple comments: returns post dict with comments list ordered by created_at, id
+   - Post with no comments: LEFT JOIN NULL comment row is skipped, returns comments: []
+   - Post not found: returns None
 """
 
 from unittest.mock import AsyncMock, MagicMock
@@ -30,8 +32,45 @@ def mock_pool_and_connection():
 
 
 @pytest.mark.asyncio
-async def test_get_post_by_id_with_comments_left_join(mock_pool_and_connection):
-    """get_post_by_id processes multiple LEFT JOIN rows into a single post with comments list."""
+async def test_get_post_by_id_single_table_query(mock_pool_and_connection):
+    """get_post_by_id executes lightweight single-table query without JOIN or comments."""
+    dummy_pool, mock_conn = mock_pool_and_connection
+    repo = PostRepository(dummy_pool)
+    
+    author_id = uuid4()
+    now = datetime.now(timezone.utc)
+    mock_conn.fetchrow.return_value = {
+        "id": 1,
+        "author_id": author_id,
+        "title": "Lightweight Title",
+        "content": "Lightweight Content",
+        "created_at": now,
+        "updated_at": now,
+    }
+
+    result = await repo.get_post_by_id(1)
+
+    assert result is not None
+    assert result["id"] == 1
+    assert result["title"] == "Lightweight Title"
+    assert "comments" not in result
+    mock_conn.fetchrow.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_get_post_by_id_not_found_returns_none(mock_pool_and_connection):
+    """get_post_by_id returns None when post is not found."""
+    dummy_pool, mock_conn = mock_pool_and_connection
+    repo = PostRepository(dummy_pool)
+    mock_conn.fetchrow.return_value = None
+
+    result = await repo.get_post_by_id(999)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_get_post_with_comments_left_join(mock_pool_and_connection):
+    """get_post_with_comments processes multiple LEFT JOIN rows into a single post with comments list."""
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
     
@@ -69,7 +108,7 @@ async def test_get_post_by_id_with_comments_left_join(mock_pool_and_connection):
     ]
     mock_conn.fetch.return_value = mock_rows
 
-    result = await repo.get_post_by_id(1)
+    result = await repo.get_post_with_comments(1)
 
     assert result is not None
     assert result["id"] == 1
@@ -82,8 +121,8 @@ async def test_get_post_by_id_with_comments_left_join(mock_pool_and_connection):
 
 
 @pytest.mark.asyncio
-async def test_get_post_by_id_without_comments_left_join(mock_pool_and_connection):
-    """get_post_by_id skips NULL comment row from LEFT JOIN and returns comments: []."""
+async def test_get_post_with_comments_without_comments_left_join(mock_pool_and_connection):
+    """get_post_with_comments skips NULL comment row from LEFT JOIN and returns comments: []."""
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
     
@@ -107,7 +146,7 @@ async def test_get_post_by_id_without_comments_left_join(mock_pool_and_connectio
     ]
     mock_conn.fetch.return_value = mock_rows
 
-    result = await repo.get_post_by_id(2)
+    result = await repo.get_post_with_comments(2)
 
     assert result is not None
     assert result["id"] == 2
@@ -116,13 +155,13 @@ async def test_get_post_by_id_without_comments_left_join(mock_pool_and_connectio
 
 
 @pytest.mark.asyncio
-async def test_get_post_by_id_not_found_returns_none(mock_pool_and_connection):
-    """get_post_by_id returns None when query produces no rows."""
+async def test_get_post_with_comments_not_found_returns_none(mock_pool_and_connection):
+    """get_post_with_comments returns None when query produces no rows."""
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
     
     mock_conn.fetch.return_value = []
 
-    result = await repo.get_post_by_id(999)
+    result = await repo.get_post_with_comments(999)
 
     assert result is None

@@ -136,7 +136,7 @@ def test_get_post_item_miss_then_hit_and_ttl(client, fake_cache_service, fake_re
     3. TTL is <= 300s.
     """
     sample = make_post_payload(42, title="Unique Post")
-    mock_post_service.get_post_by_id.return_value = sample
+    mock_post_service.get_post_detail.return_value = sample
 
     app.dependency_overrides[get_post_service] = lambda: mock_post_service
     app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
@@ -158,12 +158,12 @@ def test_get_post_item_miss_then_hit_and_ttl(client, fake_cache_service, fake_re
     assert resp2.status_code == 200
     assert resp2.headers.get("X-Cache") == "HIT"
     assert resp2.json()["title"] == "Unique Post"
-    assert mock_post_service.get_post_by_id.await_count == 1
+    assert mock_post_service.get_post_detail.await_count == 1
 
 
 def test_get_post_item_404_not_cached(client, fake_cache_service, fake_redis, mock_post_service):
     """GET /api/posts/{id} returning 404 does NOT store anything in Redis."""
-    mock_post_service.get_post_by_id.side_effect = HTTPException(
+    mock_post_service.get_post_detail.side_effect = HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="Post not found"
     )
     app.dependency_overrides[get_post_service] = lambda: mock_post_service
@@ -204,7 +204,7 @@ def test_get_post_item_with_comments_shape(client, fake_cache_service, mock_post
             },
         ],
     }
-    mock_post_service.get_post_by_id.return_value = sample_with_comments
+    mock_post_service.get_post_detail.return_value = sample_with_comments
     app.dependency_overrides[get_post_service] = lambda: mock_post_service
     app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
@@ -231,7 +231,7 @@ def test_get_post_item_empty_comments_returns_empty_list(client, fake_cache_serv
         "updated_at": datetime.now(timezone.utc).isoformat(),
         "comments": [],
     }
-    mock_post_service.get_post_by_id.return_value = sample_empty_comments
+    mock_post_service.get_post_detail.return_value = sample_empty_comments
     app.dependency_overrides[get_post_service] = lambda: mock_post_service
     app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
@@ -455,7 +455,8 @@ def test_redis_failure_falls_back_to_service_without_crashing(client, mock_post_
     failing_cache = CacheService(mock_redis)
 
     sample = make_post_payload(1, title="DB Post")
-    mock_post_service.get_post_by_id.return_value = sample
+    sample["comments"] = []
+    mock_post_service.get_post_detail.return_value = sample
 
     app.dependency_overrides[get_post_service] = lambda: mock_post_service
     app.dependency_overrides[get_cache_service] = lambda: failing_cache

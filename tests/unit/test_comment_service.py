@@ -219,3 +219,28 @@ async def test_delete_comment_invalid_user_uuid(comment_service_with_mock_repos)
         await comment_service_with_mock_repos.delete_comment(5, "not-a-valid-uuid")
 
     assert exc.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_comment_service_does_not_call_get_post_with_comments(comment_service_with_mock_repos):
+    """CommentService create_comment and get_comments_by_post_id use lightweight get_post_by_id, NOT get_post_with_comments."""
+    comment_service_with_mock_repos.post_repository.get_post_by_id.return_value = {"id": 1}
+    comment_service_with_mock_repos.repository.create_comment.return_value = {
+        "id": 10,
+        "post_id": 1,
+        "author_id": UUID(USER_A_ID),
+        "content": "Nice post!",
+        "created_at": datetime.now(timezone.utc),
+    }
+    comment_service_with_mock_repos.repository.get_comments_by_post_id.return_value = []
+
+    # Test create_comment
+    await comment_service_with_mock_repos.create_comment(1, USER_A_ID, CommentCreate(content="Nice post!"))
+    comment_service_with_mock_repos.post_repository.get_post_with_comments.assert_not_called()
+    assert comment_service_with_mock_repos.post_repository.get_post_by_id.await_count == 1
+
+    # Test get_comments_by_post_id
+    await comment_service_with_mock_repos.get_comments_by_post_id(1)
+    comment_service_with_mock_repos.post_repository.get_post_with_comments.assert_not_called()
+    assert comment_service_with_mock_repos.post_repository.get_post_by_id.await_count == 2
+

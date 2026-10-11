@@ -160,3 +160,29 @@ async def test_get_like_count_missing_post(like_service_with_mock_repos):
 
     assert exc.value.status_code == 404
     assert exc.value.detail == "Post not found"
+
+
+@pytest.mark.asyncio
+async def test_like_service_does_not_call_get_post_with_comments(like_service_with_mock_repos):
+    """LikeService like_post, unlike_post, and get_like_count use lightweight get_post_by_id, NOT get_post_with_comments."""
+    like_service_with_mock_repos.post_repository.get_post_by_id.return_value = {"id": 1}
+    like_service_with_mock_repos.repository.create_like.return_value = 1
+    like_service_with_mock_repos.repository.like_exists.return_value = True
+    like_service_with_mock_repos.repository.delete_like.return_value = True
+    like_service_with_mock_repos.repository.get_like_count.return_value = 5
+
+    # Test like_post
+    await like_service_with_mock_repos.like_post(1, USER_A_ID)
+    like_service_with_mock_repos.post_repository.get_post_with_comments.assert_not_called()
+    assert like_service_with_mock_repos.post_repository.get_post_by_id.await_count == 1
+
+    # Test unlike_post
+    await like_service_with_mock_repos.unlike_post(1, USER_A_ID)
+    like_service_with_mock_repos.post_repository.get_post_with_comments.assert_not_called()
+    assert like_service_with_mock_repos.post_repository.get_post_by_id.await_count == 2
+
+    # Test get_like_count
+    await like_service_with_mock_repos.get_like_count(1)
+    like_service_with_mock_repos.post_repository.get_post_with_comments.assert_not_called()
+    assert like_service_with_mock_repos.post_repository.get_post_by_id.await_count == 3
+
