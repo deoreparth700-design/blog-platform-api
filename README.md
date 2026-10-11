@@ -194,14 +194,36 @@ Caching is implemented on all post reads with the **cache-aside** pattern and di
 
 ## 🧪 Automated Testing
 
-The automated test suite runs **128 tests** with complete isolation from cloud credentials:
+The automated test suite supports both mock-isolated unit/API testing and real PostgreSQL integration testing:
 - **JWT Isolation**: Dedicated `TEST_JWT_SECRET` injected via pytest fixtures without mutating the developer environment.
 - **In-Memory FakeRedis**: Full pattern deletion, TTL tracking, and get/set simulation.
 - **Mock Repositories**: Real service business logic tested without requiring live PostgreSQL.
 - **FastAPI TestClient**: Full HTTP routing, header verification, and status code assertions.
+- **Database Safety Invariant**: Integration tests strictly require `TEST_DATABASE_URL`. If unset, integration tests are automatically skipped. If `TEST_DATABASE_URL` equals production `DATABASE_URL`, tests abort immediately with a `RuntimeError` to prevent data loss.
 
-Run the test suite:
+### Running Unit and API Tests Only (Fast, No Database Required)
 ```powershell
+pytest tests/unit tests/api
+```
+
+### Running Real Database Integration Tests
+Integration tests run against a real PostgreSQL database (local or separate branch):
+
+**Windows PowerShell:**
+```powershell
+$env:TEST_DATABASE_URL="postgresql://user:password@localhost:5432/blog_test"
+pytest tests/integration
+```
+
+**Linux / macOS / Bash:**
+```bash
+export TEST_DATABASE_URL="postgresql://user:password@localhost:5432/blog_test"
+pytest tests/integration
+```
+
+### Running the Entire Test Suite
+```powershell
+# If TEST_DATABASE_URL is unset, integration tests will cleanly skip
 pytest
 ```
 
