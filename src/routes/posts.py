@@ -2,7 +2,7 @@ from typing import List
 from fastapi import APIRouter, Depends, status, HTTPException, Query, Response
 import asyncpg
 import logging
-from src.schemas.post import PostCreate, PostUpdate, PostResponse, PaginatedPostResponse
+from src.schemas.post import PostCreate, PostUpdate, PostResponse, PaginatedPostResponse, PostDetailResponse
 from src.services.post_service import PostService
 from src.services.cache_service import CacheService, POSTS_LIST_TTL, POST_ITEM_TTL
 from src.config.db import get_pool
@@ -75,7 +75,7 @@ async def get_posts(
     response.headers["X-Cache"] = "MISS"
     return result
 
-@router.get("/{post_id}", response_model=PostResponse)
+@router.get("/{post_id}", response_model=PostDetailResponse)
 async def get_post(
     post_id: int,
     response: Response,

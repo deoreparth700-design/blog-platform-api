@@ -13,7 +13,7 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 
-from src.schemas.post import PostCreate, PostUpdate, PostResponse, PaginatedPostResponse
+from src.schemas.post import PostCreate, PostUpdate, PostResponse, PaginatedPostResponse, PostDetailResponse
 from src.schemas.comment import CommentCreate, CommentUpdate, CommentResponse
 from src.schemas.like import LikeCountResponse
 
@@ -128,6 +128,40 @@ def test_post_response_invalid_uuid():
             created_at=now,
             updated_at=now,
         )
+
+
+def test_post_detail_response_valid():
+    """PostDetailResponse includes comments list and defaults to empty list."""
+    author_uuid = uuid4()
+    now = datetime.now(timezone.utc)
+    comment = CommentResponse(
+        id=10,
+        post_id=1,
+        author_id=author_uuid,
+        content="Comment 1",
+        created_at=now,
+    )
+    detail_with_comments = PostDetailResponse(
+        id=1,
+        author_id=author_uuid,
+        title="Title",
+        content="Content",
+        created_at=now,
+        updated_at=now,
+        comments=[comment],
+    )
+    assert len(detail_with_comments.comments) == 1
+    assert detail_with_comments.comments[0].content == "Comment 1"
+
+    detail_empty = PostDetailResponse(
+        id=1,
+        author_id=author_uuid,
+        title="Title",
+        content="Content",
+        created_at=now,
+        updated_at=now,
+    )
+    assert detail_empty.comments == []
 
 
 def test_paginated_post_response_valid():

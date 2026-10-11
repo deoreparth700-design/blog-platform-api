@@ -3,7 +3,9 @@ from fastapi import APIRouter, Depends, status, HTTPException
 import asyncpg
 from src.schemas.comment import CommentCreate, CommentUpdate, CommentResponse
 from src.services.comment_service import CommentService
+from src.services.cache_service import CacheService
 from src.config.db import get_pool
+from src.routes.posts import get_cache_service
 from src.middleware.auth import get_current_user
 
 router = APIRouter()
@@ -16,13 +18,16 @@ async def create_comment(
     post_id: int,
     comment_data: CommentCreate,
     current_user: dict = Depends(get_current_user),
-    service: CommentService = Depends(get_comment_service)
+    service: CommentService = Depends(get_comment_service),
+    cache: CacheService = Depends(get_cache_service)
 ):
     user_id = current_user.get("userId")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
     
-    return await service.create_comment(post_id, user_id, comment_data)
+    created = await service.create_comment(post_id, user_id, comment_data)
+    await cache.invalidate_post_item(post_id)
+    return created
 
 @router.get("/posts/{post_id}/comments", response_model=List[CommentResponse])
 async def get_comments(
@@ -36,22 +41,36 @@ async def update_comment(
     comment_id: int,
     comment_data: CommentUpdate,
     current_user: dict = Depends(get_current_user),
-    service: CommentService = Depends(get_comment_service)
+    service: CommentService = Depends(get_comment_service),
+    cache: CacheService = Depends(get_cache_service)
 ):
     user_id = current_user.get("userId")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
         
-    return await service.update_comment(comment_id, user_id, comment_data)
+    updated = await service.update_comment(comment_id, user_id, comment_data)
+    post_id = updated.get("post_id") if isinstance(updated, dict) else None
+    if post_id:
+        await cache.invalidate_post_item(post_id)
+    return updated
 
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_comment(
     comment_id: int,
     current_user: dict = Depends(get_current_user),
-    service: CommentService = Depends(get_comment_service)
+    service: CommentService = Depends(get_comment_service),
+    cache: CacheService = Depends(get_cache_service)
 ):
     user_id = current_user.get("userId")
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
         
+    try:
+        comment = await service.get_comment_by_id(comment_id)
+        post_id = comment.get("post_id") if isinstance(comment, dict) else None
+    except HTTPException:
+        post_id = None
+
     await service.delete_comment(comment_id, user_id)
+    if post_id:
+        await cache.invalidate_post_item(post_id)

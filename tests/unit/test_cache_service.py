@@ -127,6 +127,19 @@ async def test_invalidate_individual_post_success(fake_cache_service):
 
 
 @pytest.mark.asyncio
+async def test_invalidate_post_item_success(fake_cache_service):
+    """invalidate_post_item clears only the specific item and leaves list caches intact."""
+    await fake_cache_service.set("posts:item:7", {"title": "Post 7"})
+    await fake_cache_service.set("posts:list:page:1:limit:10", {"items": [7]})
+
+    res = await fake_cache_service.invalidate_post_item(7)
+    assert res is True
+
+    assert await fake_cache_service.get("posts:item:7") is None
+    assert await fake_cache_service.get("posts:list:page:1:limit:10") is not None
+
+
+@pytest.mark.asyncio
 async def test_redis_get_failure_fails_open():
     """Redis GET exception fails open: returns None and does not raise."""
     mock_redis = AsyncMock()

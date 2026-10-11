@@ -155,6 +155,15 @@ class CacheService:
         list_deleted = await self.invalidate_post_list()
         return bool(item_deleted and list_deleted)
 
+    async def invalidate_post_item(self, post_id: int) -> bool:
+        """
+        Invalidate only the individual post cache ('posts:item:{post_id}').
+        Called when a comment is created, updated, or deleted.
+        Post list cache does not need invalidation for comments.
+        """
+        item_key = self.build_post_item_key(post_id)
+        return await self.delete(item_key)
+
     # ----------------------------------------------------------------
     # Cache key builders
     # ----------------------------------------------------------------
