@@ -135,19 +135,6 @@ def invalid_headers(invalid_token) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# FastAPI TestClient Fixture with Guaranteed Cleanup
-# ---------------------------------------------------------------------------
-@pytest.fixture
-def client():
-    """
-    FastAPI TestClient fixture with guaranteed teardown of dependency overrides.
-    """
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
-
-
-# ---------------------------------------------------------------------------
 # In-Memory Fake Redis
 # ---------------------------------------------------------------------------
 class FakeRedis:
@@ -222,6 +209,21 @@ def fake_cache_service(fake_redis) -> CacheService:
 
 
 # ---------------------------------------------------------------------------
+# FastAPI TestClient Fixture with Guaranteed Cleanup
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def client(fake_cache_service):
+    """
+    FastAPI TestClient fixture with guaranteed teardown of dependency overrides.
+    Automatically overrides get_cache_service with FakeRedis-backed cache.
+    """
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
+
+
+# ---------------------------------------------------------------------------
 # Lightweight Test Doubles for API Route Testing
 # (Do NOT duplicate business logic of real services)
 # ---------------------------------------------------------------------------
@@ -266,6 +268,7 @@ class FakePostService:
             "content": "Content",
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
+            "comments": [],
         })
 
     async def update_post(self, post_id: int, user_id: str, post_data) -> dict:

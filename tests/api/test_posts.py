@@ -178,6 +178,70 @@ def test_get_post_item_404_not_cached(client, fake_cache_service, fake_redis, mo
     assert cached is None
 
 
+def test_get_post_item_with_comments_shape(client, fake_cache_service, mock_post_service):
+    """GET /api/posts/{id} returns PostDetailResponse with comments list ordered by created_at, id."""
+    sample_with_comments = {
+        "id": 1,
+        "author_id": UUID(USER_A_ID),
+        "title": "Post with Comments",
+        "content": "Content with Comments",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "comments": [
+            {
+                "id": 10,
+                "post_id": 1,
+                "author_id": UUID(USER_B_ID),
+                "content": "First comment",
+                "created_at": "2026-01-01T10:00:00Z",
+            },
+            {
+                "id": 11,
+                "post_id": 1,
+                "author_id": UUID(USER_A_ID),
+                "content": "Second comment",
+                "created_at": "2026-01-01T11:00:00Z",
+            },
+        ],
+    }
+    mock_post_service.get_post_by_id.return_value = sample_with_comments
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    resp = client.get("/api/posts/1")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == 1
+    assert data["title"] == "Post with Comments"
+    assert len(data["comments"]) == 2
+    assert data["comments"][0]["id"] == 10
+    assert data["comments"][0]["content"] == "First comment"
+    assert data["comments"][1]["id"] == 11
+    assert data["comments"][1]["content"] == "Second comment"
+
+
+def test_get_post_item_empty_comments_returns_empty_list(client, fake_cache_service, mock_post_service):
+    """GET /api/posts/{id} on post without comments returns comments: []."""
+    sample_empty_comments = {
+        "id": 2,
+        "author_id": UUID(USER_A_ID),
+        "title": "Post without Comments",
+        "content": "Content",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "comments": [],
+    }
+    mock_post_service.get_post_by_id.return_value = sample_empty_comments
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    resp = client.get("/api/posts/2")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == 2
+    assert data["comments"] == []
+
+
 # ---------------------------------------------------------------------------
 # POST /api/posts/ (Create Post & Cache Invalidation)
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ Tests:
   - missing auth -> 401
   - malformed request -> 422
   - parent post missing -> 404
+  - cache invalidation: invalidates posts:item:{post_id} but not list cache
 - GET /api/posts/{post_id}/comments:
   - list comments -> 200
   - parent post missing -> 404
@@ -15,13 +16,16 @@ Tests:
   - missing auth -> 401
   - non-owner -> 403
   - missing comment -> 404
+  - cache invalidation: invalidates posts:item:{post_id} but not list cache
 - DELETE /api/comments/{comment_id}:
   - delete owner -> 204
   - missing auth -> 401
   - non-owner -> 403
   - missing comment -> 404
+  - cache invalidation: invalidates posts:item:{post_id} but not list cache
 """
 
+import asyncio
 from uuid import UUID
 from datetime import datetime, timezone
 import pytest
@@ -29,6 +33,7 @@ from fastapi import HTTPException, status
 
 from src.app import app
 from src.routes.comments import get_comment_service
+from src.routes.posts import get_cache_service
 from tests.conftest import USER_A_ID, USER_B_ID
 
 
@@ -45,35 +50,39 @@ def make_comment_payload(comment_id: int = 1, post_id: int = 1, author_id: str =
 # ---------------------------------------------------------------------------
 # POST /api/posts/{post_id}/comments (Create Comment)
 # ---------------------------------------------------------------------------
-def test_create_comment_authenticated_success(client, auth_headers, mock_comment_service):
+def test_create_comment_authenticated_success(client, auth_headers, mock_comment_service, fake_cache_service):
     """Authenticated user creates a comment successfully -> 201."""
     mock_comment_service.create_comment.return_value = make_comment_payload(1, 1, USER_A_ID, "Awesome post!")
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.post("/api/posts/1/comments", json={"content": "Awesome post!"}, headers=auth_headers)
     assert resp.status_code == 201
     assert resp.json()["content"] == "Awesome post!"
 
 
-def test_create_comment_missing_auth_returns_401(client, mock_comment_service):
+def test_create_comment_missing_auth_returns_401(client, mock_comment_service, fake_cache_service):
     """Creating a comment without token returns 401."""
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.post("/api/posts/1/comments", json={"content": "No auth"})
     assert resp.status_code == 401
 
 
-def test_create_comment_malformed_body_returns_422(client, auth_headers, mock_comment_service):
+def test_create_comment_malformed_body_returns_422(client, auth_headers, mock_comment_service, fake_cache_service):
     """Creating a comment with missing content field returns 422."""
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.post("/api/posts/1/comments", json={}, headers=auth_headers)
     assert resp.status_code == 422
 
 
-def test_create_comment_empty_or_too_long_returns_422(client, auth_headers, mock_comment_service):
+def test_create_comment_empty_or_too_long_returns_422(client, auth_headers, mock_comment_service, fake_cache_service):
     """Creating a comment with empty or oversized content returns 422."""
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     # Empty content
     assert client.post("/api/posts/1/comments", json={"content": ""}, headers=auth_headers).status_code == 422
@@ -81,16 +90,39 @@ def test_create_comment_empty_or_too_long_returns_422(client, auth_headers, mock
     assert client.post("/api/posts/1/comments", json={"content": "a" * 2001}, headers=auth_headers).status_code == 422
 
 
-def test_create_comment_parent_post_missing_returns_404(client, auth_headers, mock_comment_service):
+def test_create_comment_parent_post_missing_returns_404(client, auth_headers, mock_comment_service, fake_cache_service):
     """Creating a comment on a non-existent post returns 404."""
     mock_comment_service.create_comment.side_effect = HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="Post not found"
     )
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.post("/api/posts/999/comments", json={"content": "Ghost"}, headers=auth_headers)
     assert resp.status_code == 404
     assert resp.json()["detail"] == "Post not found"
+
+
+def test_create_comment_invalidates_post_item_cache_but_not_list_cache(client, auth_headers, mock_comment_service, fake_cache_service):
+    """Creating a comment invalidates posts:item:{post_id} but leaves posts:list:* intact."""
+    mock_comment_service.create_comment.return_value = make_comment_payload(1, 42, USER_A_ID, "New comment")
+    app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    # Seed both item cache and list cache
+    asyncio.run(fake_cache_service.set("posts:item:42", {"id": 42, "title": "Cached Post"}))
+    asyncio.run(fake_cache_service.set("posts:list:page:1:limit:10", {"items": [{"id": 42}]}))
+
+    resp = client.post("/api/posts/42/comments", json={"content": "New comment"}, headers=auth_headers)
+    assert resp.status_code == 201
+
+    # Item cache must be invalidated
+    cached_item = asyncio.run(fake_cache_service.get("posts:item:42"))
+    assert cached_item is None
+
+    # List cache must NOT be invalidated
+    cached_list = asyncio.run(fake_cache_service.get("posts:list:page:1:limit:10"))
+    assert cached_list is not None
 
 
 # ---------------------------------------------------------------------------
@@ -125,50 +157,55 @@ def test_get_comments_missing_parent_post_returns_404(client, mock_comment_servi
 # ---------------------------------------------------------------------------
 # PUT /api/comments/{comment_id} (Update Comment)
 # ---------------------------------------------------------------------------
-def test_update_comment_owner_success(client, auth_headers, mock_comment_service):
+def test_update_comment_owner_success(client, auth_headers, mock_comment_service, fake_cache_service):
     """Comment owner updates comment -> 200."""
     updated = make_comment_payload(1, 1, USER_A_ID, "Edited comment")
     mock_comment_service.update_comment.return_value = updated
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.put("/api/comments/1", json={"content": "Edited comment"}, headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["content"] == "Edited comment"
 
 
-def test_update_comment_missing_auth_returns_401(client, mock_comment_service):
+def test_update_comment_missing_auth_returns_401(client, mock_comment_service, fake_cache_service):
     """Updating comment without token returns 401."""
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.put("/api/comments/1", json={"content": "Update"})
     assert resp.status_code == 401
 
 
-def test_update_comment_non_owner_returns_403(client, user_b_headers, mock_comment_service):
+def test_update_comment_non_owner_returns_403(client, user_b_headers, mock_comment_service, fake_cache_service):
     """Non-owner updating comment returns 403 Forbidden."""
     mock_comment_service.update_comment.side_effect = HTTPException(
         status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this comment"
     )
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.put("/api/comments/1", json={"content": "Malicious edit"}, headers=user_b_headers)
     assert resp.status_code == 403
 
 
-def test_update_comment_missing_returns_404(client, auth_headers, mock_comment_service):
+def test_update_comment_missing_returns_404(client, auth_headers, mock_comment_service, fake_cache_service):
     """Updating non-existent comment returns 404."""
     mock_comment_service.update_comment.side_effect = HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found"
     )
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.put("/api/comments/999", json={"content": "Edit"}, headers=auth_headers)
     assert resp.status_code == 404
 
 
-def test_update_comment_empty_or_too_long_returns_422(client, auth_headers, mock_comment_service):
+def test_update_comment_empty_or_too_long_returns_422(client, auth_headers, mock_comment_service, fake_cache_service):
     """Updating a comment with empty or oversized content returns 422."""
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     # Empty content
     assert client.put("/api/comments/1", json={"content": ""}, headers=auth_headers).status_code == 422
@@ -176,43 +213,98 @@ def test_update_comment_empty_or_too_long_returns_422(client, auth_headers, mock
     assert client.put("/api/comments/1", json={"content": "a" * 2001}, headers=auth_headers).status_code == 422
 
 
+def test_update_comment_invalidates_post_item_cache_but_not_list_cache(client, auth_headers, mock_comment_service, fake_cache_service):
+    """Updating a comment invalidates posts:item:{post_id} but leaves posts:list:* intact."""
+    updated = make_comment_payload(1, 42, USER_A_ID, "Edited comment")
+    mock_comment_service.update_comment.return_value = updated
+    app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    # Seed both item cache and list cache
+    asyncio.run(fake_cache_service.set("posts:item:42", {"id": 42, "title": "Cached Post"}))
+    asyncio.run(fake_cache_service.set("posts:list:page:1:limit:10", {"items": [{"id": 42}]}))
+
+    resp = client.put("/api/comments/1", json={"content": "Edited comment"}, headers=auth_headers)
+    assert resp.status_code == 200
+
+    # Item cache must be invalidated
+    cached_item = asyncio.run(fake_cache_service.get("posts:item:42"))
+    assert cached_item is None
+
+    # List cache must NOT be invalidated
+    cached_list = asyncio.run(fake_cache_service.get("posts:list:page:1:limit:10"))
+    assert cached_list is not None
+
+
 # ---------------------------------------------------------------------------
 # DELETE /api/comments/{comment_id} (Delete Comment)
 # ---------------------------------------------------------------------------
-def test_delete_comment_owner_success(client, auth_headers, mock_comment_service):
+def test_delete_comment_owner_success(client, auth_headers, mock_comment_service, fake_cache_service):
     """Comment owner deletes comment -> 204 No Content."""
+    mock_comment_service.get_comment_by_id.return_value = make_comment_payload(1, 1, USER_A_ID)
     mock_comment_service.delete_comment.return_value = True
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.delete("/api/comments/1", headers=auth_headers)
     assert resp.status_code == 204
 
 
-def test_delete_comment_missing_auth_returns_401(client, mock_comment_service):
+def test_delete_comment_missing_auth_returns_401(client, mock_comment_service, fake_cache_service):
     """Deleting comment without token returns 401."""
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.delete("/api/comments/1")
     assert resp.status_code == 401
 
 
-def test_delete_comment_non_owner_returns_403(client, user_b_headers, mock_comment_service):
+def test_delete_comment_non_owner_returns_403(client, user_b_headers, mock_comment_service, fake_cache_service):
     """Non-owner deleting comment returns 403 Forbidden."""
+    mock_comment_service.get_comment_by_id.return_value = make_comment_payload(1, 1, USER_A_ID)
     mock_comment_service.delete_comment.side_effect = HTTPException(
         status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this comment"
     )
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.delete("/api/comments/1", headers=user_b_headers)
     assert resp.status_code == 403
 
 
-def test_delete_comment_missing_returns_404(client, auth_headers, mock_comment_service):
+def test_delete_comment_missing_returns_404(client, auth_headers, mock_comment_service, fake_cache_service):
     """Deleting non-existent comment returns 404."""
+    mock_comment_service.get_comment_by_id.side_effect = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found"
+    )
     mock_comment_service.delete_comment.side_effect = HTTPException(
         status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found"
     )
     app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
     resp = client.delete("/api/comments/999", headers=auth_headers)
     assert resp.status_code == 404
+
+
+def test_delete_comment_invalidates_post_item_cache_but_not_list_cache(client, auth_headers, mock_comment_service, fake_cache_service):
+    """Deleting a comment invalidates posts:item:{post_id} but leaves posts:list:* intact."""
+    mock_comment_service.get_comment_by_id.return_value = make_comment_payload(1, 42, USER_A_ID)
+    mock_comment_service.delete_comment.return_value = True
+    app.dependency_overrides[get_comment_service] = lambda: mock_comment_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    # Seed both item cache and list cache
+    asyncio.run(fake_cache_service.set("posts:item:42", {"id": 42, "title": "Cached Post"}))
+    asyncio.run(fake_cache_service.set("posts:list:page:1:limit:10", {"items": [{"id": 42}]}))
+
+    resp = client.delete("/api/comments/1", headers=auth_headers)
+    assert resp.status_code == 204
+
+    # Item cache must be invalidated
+    cached_item = asyncio.run(fake_cache_service.get("posts:item:42"))
+    assert cached_item is None
+
+    # List cache must NOT be invalidated
+    cached_list = asyncio.run(fake_cache_service.get("posts:list:page:1:limit:10"))
+    assert cached_list is not None
