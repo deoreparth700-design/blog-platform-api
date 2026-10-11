@@ -5,13 +5,15 @@ Measures latency comparison between:
 1. Cold Cache / MISS: Request hits PostgreSQL database and populates Redis cache (X-Cache: MISS).
 2. Warm Cache / HIT: Request is served directly from Upstash Redis (X-Cache: HIT).
 
-Target Endpoint:
-GET /api/posts/?page=1&limit=10
+Target Endpoints:
+- Default:            GET /api/posts/?page=1&limit=10
+- With --post-id ID:  GET /api/posts/{id}
 
 Usage:
-  python scripts/benchmark_performance.py [BASE_URL]
-Example:
+  python scripts/benchmark_performance.py [BASE_URL] [--post-id ID] [--rounds N]
+Examples:
   python scripts/benchmark_performance.py http://localhost:5000
+  python scripts/benchmark_performance.py http://localhost:5000 --post-id 1
 """
 
 import sys
@@ -33,6 +35,12 @@ def parse_args():
         nargs="?",
         default=os.environ.get("BASE_URL", "http://localhost:5000"),
         help="Base URL of the running API (default: http://localhost:5000)"
+    )
+    parser.add_argument(
+        "--post-id",
+        type=int,
+        default=None,
+        help="Post ID to benchmark GET /api/posts/{id} instead of the post listing endpoint"
     )
     parser.add_argument(
         "--rounds",
@@ -78,8 +86,13 @@ def calculate_percentile(data, percentile):
 def main():
     args = parse_args()
     base_url = args.base_url.rstrip("/")
-    endpoint = f"{base_url}/api/posts/?page=1&limit=10"
-    target_cache_key = "posts:list:page:1:limit:10"
+
+    if args.post_id is not None:
+        endpoint = f"{base_url}/api/posts/{args.post_id}"
+        target_cache_key = f"posts:item:{args.post_id}"
+    else:
+        endpoint = f"{base_url}/api/posts/?page=1&limit=10"
+        target_cache_key = "posts:list:page:1:limit:10"
 
     print("=" * 60)
     print("Blog Platform API Performance Benchmark")
