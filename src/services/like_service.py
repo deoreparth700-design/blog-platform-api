@@ -19,11 +19,14 @@ class LikeService:
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
-        exists = await self.repository.like_exists(post_id, user_uuid)
-        if exists:
+        try:
+            created = await self.repository.create_like(post_id, user_uuid)
+        except asyncpg.ForeignKeyViolationError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
+
+        if not created:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Post already liked")
 
-        await self.repository.create_like(post_id, user_uuid)
         return {"message": "Post liked", "post_id": post_id}
 
     async def unlike_post(self, post_id: int, user_id: str) -> None:

@@ -74,6 +74,20 @@ async def test_create_comment_on_missing_post(comment_service_with_mock_repos):
 
 
 @pytest.mark.asyncio
+async def test_create_comment_foreign_key_violation(comment_service_with_mock_repos):
+    """create_comment raises 404 when post was deleted between check and insert."""
+    import asyncpg
+    comment_service_with_mock_repos.post_repository.get_post_by_id.return_value = {"id": 1}
+    comment_service_with_mock_repos.repository.create_comment.side_effect = asyncpg.ForeignKeyViolationError("foreign key violation")
+
+    with pytest.raises(HTTPException) as exc:
+        await comment_service_with_mock_repos.create_comment(1, USER_A_ID, CommentCreate(content="Hello"))
+
+    assert exc.value.status_code == 404
+    assert exc.value.detail == "Post not found"
+
+
+@pytest.mark.asyncio
 async def test_create_comment_invalid_user_uuid(comment_service_with_mock_repos):
     """create_comment raises 400 when user_id is not a valid UUID."""
     comment_service_with_mock_repos.post_repository.get_post_by_id.return_value = {"id": 1}

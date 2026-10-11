@@ -226,6 +226,21 @@ def test_create_post_invalid_body_returns_422(client, auth_headers, fake_cache_s
     assert resp.status_code == 422
 
 
+def test_create_post_empty_or_too_long_returns_422(client, auth_headers, fake_cache_service, mock_post_service):
+    """POST /api/posts/ with empty or oversized title/content returns 422."""
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    # Empty title
+    assert client.post("/api/posts/", json={"title": "", "content": "Valid"}, headers=auth_headers).status_code == 422
+    # Title > 200
+    assert client.post("/api/posts/", json={"title": "a" * 201, "content": "Valid"}, headers=auth_headers).status_code == 422
+    # Empty content
+    assert client.post("/api/posts/", json={"title": "Valid", "content": ""}, headers=auth_headers).status_code == 422
+    # Content > 20000
+    assert client.post("/api/posts/", json={"title": "Valid", "content": "a" * 20001}, headers=auth_headers).status_code == 422
+
+
 # ---------------------------------------------------------------------------
 # PUT /api/posts/{post_id} (Update Post & Dual Invalidation)
 # ---------------------------------------------------------------------------
@@ -286,6 +301,21 @@ def test_update_post_invalid_body_returns_422(client, auth_headers, fake_cache_s
     # FastAPI/Pydantic might coerce or reject; if title is int, let's pass a dict or invalid structure
     resp_bad = client.put("/api/posts/1", json="not a dict", headers=auth_headers)
     assert resp_bad.status_code == 422
+
+
+def test_update_post_empty_or_too_long_returns_422(client, auth_headers, fake_cache_service, mock_post_service):
+    """PUT /api/posts/{id} with empty or oversized title/content returns 422."""
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    # Empty title
+    assert client.put("/api/posts/1", json={"title": ""}, headers=auth_headers).status_code == 422
+    # Title > 200
+    assert client.put("/api/posts/1", json={"title": "a" * 201}, headers=auth_headers).status_code == 422
+    # Empty content
+    assert client.put("/api/posts/1", json={"content": ""}, headers=auth_headers).status_code == 422
+    # Content > 20000
+    assert client.put("/api/posts/1", json={"content": "a" * 20001}, headers=auth_headers).status_code == 422
 
 
 # ---------------------------------------------------------------------------

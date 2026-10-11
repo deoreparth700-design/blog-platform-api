@@ -104,3 +104,18 @@ def test_verify_missing_jwt_secret_configuration(monkeypatch):
 
     assert exc_info.value.status_code == 401
     assert exc_info.value.detail == "Authentication configuration error"
+
+
+def test_verify_missing_exp_claim():
+    """Token without exp claim raises HTTPException with 401 status."""
+    payload = {
+        "userId": USER_A_ID,
+        "iat": int(time.time()),
+    }
+    token = jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
+
+    with pytest.raises(HTTPException) as exc_info:
+        verify_jwt_token(token)
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Invalid authentication credentials"

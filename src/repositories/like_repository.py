@@ -1,3 +1,4 @@
+from typing import Optional
 import asyncpg
 from uuid import UUID
 
@@ -5,13 +6,16 @@ class LikeRepository:
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
 
-    async def create_like(self, post_id: int, user_id: UUID) -> None:
+    async def create_like(self, post_id: int, user_id: UUID) -> Optional[int]:
         query = """
             INSERT INTO likes (post_id, user_id)
             VALUES ($1, $2)
+            ON CONFLICT DO NOTHING
+            RETURNING post_id
         """
         async with self.pool.acquire() as connection:
-            await connection.execute(query, post_id, user_id)
+            row = await connection.fetchrow(query, post_id, user_id)
+            return row["post_id"] if row else None
 
     async def delete_like(self, post_id: int, user_id: UUID) -> bool:
         query = """

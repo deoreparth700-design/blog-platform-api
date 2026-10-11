@@ -14,3 +14,17 @@ def test_health_check_endpoint(client):
     data = response.json()
     assert data["status"] == "ok"
     assert data["message"] == "Blog Platform API is running"
+
+
+def test_cors_headers(client):
+    """CORS preflight or request returns proper allow-origin and credentials policy."""
+    response = client.options(
+        "/health",
+        headers={
+            "Origin": "http://example.com",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "*"
+    assert response.headers.get("access-control-allow-credentials") is None
