@@ -189,4 +189,20 @@ latency to cloud PostgreSQL (Neon) and cloud Redis (Upstash).
 | **P95 Latency** | **935.03 ms** | **63.65 ms** | **14.69x speedup** |
 | **Maximum Latency** | 2,765.05 ms | 64.95 ms | **42.57x faster** |
 
+---
+
+## 7. Deployed Benchmark (Render, measured from a remote client)
+
+Measured on 17 Oct 2026 from a developer PC in India against the live Render service (https://blog-platform-api-db7a.onrender.com), 20 sequential requests per scenario, 3 warm-ups. The server talks to cloud Neon PostgreSQL and Upstash Redis.
+
+| Endpoint | Cold / MISS median | Warm / HIT median | Median speedup | P95 cold -> warm |
+| :--- | :--- | :--- | :--- | :--- |
+| GET /api/posts/?page=1&limit=10 | 938.60 ms | 589.57 ms | 1.59x | 986.26 -> 695.83 ms |
+| GET /api/posts/87 (1 comment) | 912.57 ms | 541.98 ms | 1.68x | 1396.03 -> 594.75 ms |
+
+Cache MISS rate was 100% on the cold pass and HIT rate 100% on the warm pass for both endpoints, which confirms Redis caching and the X-Cache header work on the deployed service.
+
+Subsection "Why the deployed speedup is smaller than the local one": each request from a remote client pays a fixed network round trip to Render (roughly 500 ms in this run). The cache removes the database query (about 350-370 ms, the gap between the cold and warm medians) but cannot remove the network distance. The local-server runs in sections 1-6 exclude that overhead, so they show the server-side effect more clearly (list 18.26x, detail 14.68x). The split between network and server time is an inference from comparing the two runs, not a direct server-side measurement on Render. Region placement of the Render service relative to Neon, Upstash and the client was not tuned or verified.
+
+
 

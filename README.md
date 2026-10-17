@@ -221,9 +221,9 @@ Caching is implemented on all post reads with the **cache-aside** pattern and di
 
 ## 🧪 Automated Testing
 
-The automated test suite contains **176 automated tests** (169 unit & API tests, plus 7 live database integration tests):
-- **169 Unit & API Tests**: Run in ~1.3 seconds with complete isolation from cloud credentials using FakeRedis and mock repositories.
-- **7 Live Database Integration Tests**: Run against real PostgreSQL in `tests/integration/` (and automatically in GitHub Actions CI via a postgres service container).
+The automated test suite contains **183 automated tests (175 unit & API tests, plus 8 live database integration tests; integration tests are skipped when TEST_DATABASE_URL is not set)**:
+- **175 Unit & API Tests**: Run in ~1.3 seconds with complete isolation from cloud credentials using FakeRedis and mock repositories.
+- **8 Live Database Integration Tests**: Run against real PostgreSQL in `tests/integration/` (and automatically in GitHub Actions CI via a postgres service container).
 - **JWT Isolation**: Dedicated `TEST_JWT_SECRET` injected via pytest fixtures without mutating the developer environment.
 - **In-Memory FakeRedis**: Full pattern deletion, TTL tracking, and get/set simulation.
 - **Database Safety Invariant**: Integration tests strictly require `TEST_DATABASE_URL`. If unset, integration tests are automatically skipped. If `TEST_DATABASE_URL` equals production `DATABASE_URL`, tests abort immediately with a `RuntimeError` to prevent data loss.
