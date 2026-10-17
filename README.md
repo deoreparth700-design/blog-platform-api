@@ -8,11 +8,12 @@ A production-style backend REST API for a blog platform built with **FastAPI**, 
 The API is deployed on Render. Use these live endpoints to explore and test it:
 
 - **[Interactive API documentation (Swagger)](https://blog-platform-api-db7a.onrender.com/docs)** — browse endpoints and try API requests.
+- **[Demo UI (/app)](https://blog-platform-api-db7a.onrender.com/app)** — lightweight frontend UI served directly by the API.
 - **[Health check](https://blog-platform-api-db7a.onrender.com/health)** — confirm the service is running.
 - **[View blog posts](https://blog-platform-api-db7a.onrender.com/api/posts/?page=1&limit=10)** — retrieve a paginated list of posts as JSON.
 - **[Single post example](https://blog-platform-api-db7a.onrender.com/api/posts/87)** — retrieve post details with its comments.
 
-> This is a backend API, not a frontend website. The root URL (`/`) does not serve a homepage; open `/docs` to explore the API.
+> Open `/app` for the interactive demo UI and `/docs` to explore interactive API documentation.
 
 
 ---
@@ -94,6 +95,8 @@ blog-platform-api/
 ├── .github/
 │   └── workflows/
 │       └── tests.yml                 # Automated CI workflow
+├── frontend/
+│   └── index.html                    # Lightweight demo UI (HTML/CSS/JS)
 ├── scripts/
 │   ├── benchmark_performance.py      # Cold vs. Warm latency benchmark
 │   ├── init_db.py                    # Database table initialization
@@ -136,6 +139,7 @@ blog-platform-api/
 ├── tests/
 │   ├── api/                          # Route, validation & caching tests
 │   │   ├── test_health.py
+│   │   ├── test_frontend.py
 │   │   ├── test_auth.py
 │   │   ├── test_posts.py
 │   │   ├── test_comments.py
@@ -192,6 +196,7 @@ Caching is implemented on all post reads with the **cache-aside** pattern and di
 | Method | Endpoint | Auth | Description |
 | :--- | :--- | :--- | :--- |
 | `GET` | `/health` | Public | Health check |
+| `GET` | `/app` | Public | Serves the demo frontend single-page interface |
 | `GET` | `/docs` | Public | Interactive Swagger API documentation |
 | `GET` | `/api/auth-test` | Required | Validates JWT Bearer token and returns `userId` |
 
@@ -223,6 +228,16 @@ Caching is implemented on all post reads with the **cache-aside** pattern and di
 
 ---
 
+## 🖥️ Frontend (Demo UI)
+
+A minimal, single-file demo frontend is served directly by the API at [`/app`](http://localhost:8000/app):
+- **Demo UI**: A lightweight interface built with vanilla HTML, CSS, and JavaScript (no frameworks or build step). It demonstrates registering, logging in, browsing paginated posts, viewing post details and embedded comments, submitting atomic likes (with 409 duplicate rejection), commenting on posts, creating posts, and deleting posts (restricted to the post's author).
+- **Cache Observability**: Displays an `X-Cache` badge (`HIT` / `MISS`) reflecting Upstash Redis performance. *(Note: For cross-origin requests, `Access-Control-Expose-Headers: X-Cache` is required; same-origin requests can read it directly.)*
+- **Auth Service Configuration**: The frontend includes a top-level constant `const AUTH_URL = "http://localhost:8000";` in [`frontend/index.html`](frontend/index.html) configured for local development. Update this constant to your deployed Auth Service URL in production. Blog API requests use same-origin calls (`""`).
+- **Token Storage Trade-off**: The authentication JWT is held in memory and persisted in `sessionStorage` for demo convenience across page reloads. For high-security enterprise production deployments, consider storing tokens in `HttpOnly`, `SameSite`, `Secure` cookies to eliminate XSS token exfiltration risks.
+
+---
+
 ## 🔐 Authentication & User Identity Alignment
 
 User identities in this system are managed centrally by the external **Auth Service**:
@@ -238,8 +253,8 @@ For disposable test environments transitioning from legacy schemas, a migration 
 
 ## 🧪 Automated Testing
 
-The automated test suite contains **206 automated tests (198 unit & API tests, plus 8 live database integration tests; integration tests are skipped when TEST_DATABASE_URL is not set)**:
-- **198 Unit & API Tests**: Run in ~1.3 seconds with complete isolation from cloud credentials using FakeRedis and mock repositories.
+The automated test suite contains **212 automated tests (204 unit & API tests, plus 8 live database integration tests; integration tests are skipped when TEST_DATABASE_URL is not set)**:
+- **204 Unit & API Tests**: Run in ~1.3 seconds with complete isolation from cloud credentials using FakeRedis and mock repositories.
 - **8 Live Database Integration Tests**: Run against real PostgreSQL in `tests/integration/` (and automatically in GitHub Actions CI via a postgres service container).
 - **JWT Isolation**: Dedicated `TEST_JWT_SECRET` injected via pytest fixtures without mutating the developer environment.
 - **In-Memory FakeRedis**: Full pattern deletion, TTL tracking, and get/set simulation.

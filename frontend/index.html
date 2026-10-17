@@ -1,0 +1,1270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blog Platform</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --surface-card: #1e293b;
+      --surface-hover: #293548;
+      --border: #334155;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --primary-text: #ffffff;
+      --danger: #ef4444;
+      --danger-hover: #dc2626;
+      --success-bg: #064e3b;
+      --success-text: #34d399;
+      --warning-bg: #451a03;
+      --warning-text: #fbbf24;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      cursor: pointer;
+    }
+
+    .brand h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .brand .tag {
+      font-size: 0.75rem;
+      background: var(--border);
+      color: var(--text-muted);
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+
+    .nav-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .user-info {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      padding: 0.35rem 0.75rem;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: background 0.15s ease, opacity 0.15s ease;
+      text-decoration: none;
+      color: var(--text);
+      background: var(--surface-hover);
+    }
+
+    .btn:hover:not(:disabled) {
+      background: var(--border);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: var(--primary-text);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--primary-hover);
+    }
+
+    .btn-danger {
+      background: var(--danger);
+      color: #fff;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: var(--danger-hover);
+    }
+
+    .btn-sm {
+      padding: 0.3rem 0.65rem;
+      font-size: 0.8rem;
+    }
+
+    main {
+      flex: 1;
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 1.5rem;
+    }
+
+    .alert {
+      padding: 0.875rem 1.25rem;
+      border-radius: var(--radius);
+      margin-bottom: 1.25rem;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    .alert-danger {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+    }
+
+    .alert-success {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+      color: #6ee7b7;
+    }
+
+    .alert-info {
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(99, 102, 241, 0.3);
+      color: #a5b4fc;
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      padding: 0.2rem 0.55rem;
+      border-radius: 4px;
+      letter-spacing: 0.03em;
+    }
+
+    .badge-hit {
+      background: var(--success-bg);
+      color: var(--success-text);
+      border: 1px solid rgba(52, 211, 153, 0.3);
+    }
+
+    .badge-miss {
+      background: var(--warning-bg);
+      color: var(--warning-text);
+      border: 1px solid rgba(251, 191, 36, 0.3);
+    }
+
+    .badge-none {
+      background: var(--surface);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .view-section {
+      display: none;
+    }
+
+    .view-section.active {
+      display: block;
+    }
+
+    .card {
+      background: var(--surface-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+      transition: border-color 0.15s ease;
+    }
+
+    .card:hover {
+      border-color: #475569;
+    }
+
+    .post-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .post-card-title {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--text);
+      cursor: pointer;
+    }
+
+    .post-card-title:hover {
+      color: var(--primary);
+    }
+
+    .post-card-meta {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+    }
+
+    .post-card-content {
+      font-size: 0.95rem;
+      color: #cbd5e1;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .post-actions {
+      display: flex;
+      gap: 0.5rem;
+      margin-top: 1rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .list-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .cache-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    .pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+      margin-top: 1.5rem;
+    }
+
+    .pagination-page {
+      font-size: 0.9rem;
+      color: var(--text-muted);
+    }
+
+    .note-box {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 0.75rem 1rem;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-bottom: 1.25rem;
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 0.4rem;
+      color: #cbd5e1;
+    }
+
+    .form-control {
+      width: 100%;
+      padding: 0.65rem 0.85rem;
+      background: #090d16;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-size: 0.9rem;
+      font-family: inherit;
+    }
+
+    .form-control:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+
+    textarea.form-control {
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .comments-section {
+      margin-top: 2rem;
+      border-top: 1px solid var(--border);
+      padding-top: 1.5rem;
+    }
+
+    .comments-header {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+    }
+
+    .comment-card {
+      background: #151f30;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: var(--radius);
+      padding: 0.85rem 1rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .comment-meta {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-bottom: 0.35rem;
+    }
+
+    .comment-content {
+      font-size: 0.9rem;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .auth-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1.25rem;
+    }
+
+    .auth-tab {
+      padding: 0.6rem 1.2rem;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .auth-tab.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+
+    .modal-backdrop {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(2px);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+      padding: 1rem;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal-content {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      width: 100%;
+      max-width: 420px;
+      padding: 1.5rem;
+      position: relative;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 1rem;
+      right: 1rem;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.25rem;
+      cursor: pointer;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 3rem 1rem;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand" id="brand-home">
+      <h1>Blog Platform</h1>
+      <span class="tag">Demo UI</span>
+    </div>
+    <div class="nav-actions">
+      <span class="user-info" id="user-display">Not logged in</span>
+      <button class="btn btn-primary" id="btn-create-post-nav" style="display: none;">+ New Post</button>
+      <button class="btn" id="btn-login-open">Log In</button>
+      <button class="btn" id="btn-signup-open">Sign Up</button>
+      <button class="btn btn-danger" id="btn-logout" style="display: none;">Log Out</button>
+    </div>
+  </header>
+
+  <main>
+    <div id="global-alert" class="alert"></div>
+
+    <!-- POST LIST VIEW -->
+    <section id="view-posts" class="view-section active">
+      <div class="list-toolbar">
+        <h2 style="font-size: 1.3rem;">Latest Posts</h2>
+        <div class="cache-indicator">
+          <span>X-Cache:</span>
+          <span id="cache-badge" class="badge badge-none">--</span>
+        </div>
+      </div>
+
+      <div class="note-box">
+        <strong>Cache Info:</strong> The <code>X-Cache</code> badge reflects Redis caching status.
+        For cross-origin deployments, reading this header requires the server to configure
+        <code>Access-Control-Expose-Headers: X-Cache</code>; for same-origin requests, it is readable directly.
+      </div>
+
+      <div id="posts-container"></div>
+
+      <div class="pagination">
+        <button class="btn btn-sm" id="btn-prev-page" disabled>&larr; Previous</button>
+        <span class="pagination-page" id="pagination-label">Page 1</span>
+        <button class="btn btn-sm" id="btn-next-page" disabled>Next &rarr;</button>
+      </div>
+    </section>
+
+    <!-- POST DETAIL VIEW -->
+    <section id="view-detail" class="view-section">
+      <button class="btn btn-sm" id="btn-back-to-posts" style="margin-bottom: 1rem;">&larr; Back to Posts</button>
+      
+      <article class="card" id="detail-card">
+        <div class="post-card-header">
+          <h2 id="detail-title" style="font-size: 1.5rem;"></h2>
+          <div id="detail-delete-slot"></div>
+        </div>
+        <div class="post-card-meta" id="detail-meta"></div>
+        <div class="post-card-content" id="detail-content"></div>
+
+        <div class="post-actions">
+          <button class="btn btn-sm" id="btn-like-post">
+            &#10084; Like (<span id="detail-like-count">0</span>)
+          </button>
+          <span id="like-status-msg" style="font-size: 0.85rem; color: var(--text-muted); align-self: center;"></span>
+        </div>
+      </article>
+
+      <div class="comments-section">
+        <h3 class="comments-header">Comments (<span id="comment-count-label">0</span>)</h3>
+        
+        <div id="add-comment-wrapper" style="margin-bottom: 1.5rem;">
+          <form id="comment-form">
+            <div class="form-group">
+              <label for="comment-input">Add a Comment</label>
+              <textarea id="comment-input" class="form-control" rows="3" placeholder="Write your comment here..." required></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary btn-sm" id="btn-submit-comment">Post Comment</button>
+          </form>
+        </div>
+
+        <div id="comments-container"></div>
+      </div>
+    </section>
+
+    <!-- CREATE POST VIEW -->
+    <section id="view-create" class="view-section">
+      <button class="btn btn-sm" id="btn-cancel-create" style="margin-bottom: 1rem;">&larr; Cancel</button>
+      
+      <div class="card">
+        <h2 style="margin-bottom: 1.25rem;">Create New Post</h2>
+        <form id="create-post-form">
+          <div class="form-group">
+            <label for="post-title">Title</label>
+            <input type="text" id="post-title" class="form-control" placeholder="Enter post title" required maxlength="200">
+          </div>
+          <div class="form-group">
+            <label for="post-content">Content</label>
+            <textarea id="post-content" class="form-control" rows="8" placeholder="Write your post content..." required></textarea>
+          </div>
+          <button type="submit" class="btn btn-primary" id="btn-submit-post">Publish Post</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <!-- AUTH MODAL -->
+  <div class="modal-backdrop" id="auth-modal">
+    <div class="modal-content">
+      <button class="modal-close" id="btn-close-modal">&times;</button>
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login">Log In</button>
+        <button class="auth-tab" id="tab-signup">Sign Up</button>
+      </div>
+      <div id="auth-alert" class="alert"></div>
+
+      <!-- Login Form -->
+      <form id="form-login">
+        <div class="form-group">
+          <label for="login-email">Email</label>
+          <input type="email" id="login-email" class="form-control" required autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label for="login-password">Password</label>
+          <input type="password" id="login-password" class="form-control" required autocomplete="current-password">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Log In</button>
+      </form>
+
+      <!-- Signup Form -->
+      <form id="form-signup" style="display: none;">
+        <div class="form-group">
+          <label for="signup-name">Full Name</label>
+          <input type="text" id="signup-name" class="form-control" required autocomplete="name">
+        </div>
+        <div class="form-group">
+          <label for="signup-email">Email</label>
+          <input type="email" id="signup-email" class="form-control" required autocomplete="email">
+        </div>
+        <div class="form-group">
+          <label for="signup-password">Password</label>
+          <input type="password" id="signup-password" class="form-control" required autocomplete="new-password">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Create Account</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // =========================================================================
+    // CONFIGURATION
+    // =========================================================================
+    // Point this to your Auth Service URL (e.g., "https://auth-service.onrender.com")
+    // Use http://localhost:8000 for local development.
+    const AUTH_URL = "http://localhost:8000"; // <--- Set Auth Service URL here
+    const BLOG_API_BASE = ""; // Same-origin for Blog Platform API
+
+    // State
+    let authToken = sessionStorage.getItem("accessToken") || null;
+    let currentUserId = decodeTokenUserId(authToken);
+    let currentPage = 1;
+    const postsPerPage = 10;
+    let currentDetailPostId = null;
+
+    // Helper: decode integer userId from JWT payload on client (display only, never security)
+    function decodeTokenUserId(token) {
+      if (!token) return null;
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return null;
+        // Base64Url decode
+        const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const jsonPayload = decodeURIComponent(
+          atob(base64)
+            .split('')
+            .map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+            .join('')
+        );
+        const payload = JSON.parse(jsonPayload);
+        if (payload && payload.userId !== undefined && payload.userId !== null) {
+          const parsed = parseInt(payload.userId, 10);
+          return isNaN(parsed) ? null : parsed;
+        }
+        return null;
+      } catch (err) {
+        return null;
+      }
+    }
+
+    // Date formatter
+    function formatDate(isoStr) {
+      if (!isoStr) return "";
+      try {
+        const d = new Date(isoStr);
+        return d.toLocaleDateString(undefined, {
+          year: "numeric",
+          month: "short",
+          day: "numeric",
+          hour: "2-digit",
+          minute: "2-digit"
+        });
+      } catch (e) {
+        return isoStr;
+      }
+    }
+
+    // Global alert banner
+    function showAlert(msg, type = "danger", timeoutMs = 6000) {
+      const el = document.getElementById("global-alert");
+      el.className = `alert alert-${type}`;
+      el.textContent = msg;
+      el.style.display = "block";
+      if (timeoutMs > 0) {
+        setTimeout(() => {
+          if (el.textContent === msg) {
+            el.style.display = "none";
+          }
+        }, timeoutMs);
+      }
+    }
+
+    function hideAlert() {
+      const el = document.getElementById("global-alert");
+      el.style.display = "none";
+      el.textContent = "";
+    }
+
+    // Modal alert
+    function showAuthAlert(msg, type = "danger") {
+      const el = document.getElementById("auth-alert");
+      el.className = `alert alert-${type}`;
+      el.textContent = msg;
+      el.style.display = "block";
+    }
+
+    function hideAuthAlert() {
+      const el = document.getElementById("auth-alert");
+      el.style.display = "none";
+      el.textContent = "";
+    }
+
+    // Update UI on Auth State Change
+    function updateAuthState() {
+      currentUserId = decodeTokenUserId(authToken);
+      const userDisplay = document.getElementById("user-display");
+      const btnLogin = document.getElementById("btn-login-open");
+      const btnSignup = document.getElementById("btn-signup-open");
+      const btnLogout = document.getElementById("btn-logout");
+      const btnCreateNav = document.getElementById("btn-create-post-nav");
+
+      if (authToken && currentUserId !== null) {
+        userDisplay.textContent = `Logged in as User #${currentUserId}`;
+        btnLogin.style.display = "none";
+        btnSignup.style.display = "none";
+        btnLogout.style.display = "inline-flex";
+        btnCreateNav.style.display = "inline-flex";
+      } else {
+        userDisplay.textContent = "Not logged in";
+        btnLogin.style.display = "inline-flex";
+        btnSignup.style.display = "inline-flex";
+        btnLogout.style.display = "none";
+        btnCreateNav.style.display = "none";
+      }
+    }
+
+    // Handle 401 Unauthorized globally
+    function handleUnauthorized(message = "Session expired, please log in again") {
+      authToken = null;
+      sessionStorage.removeItem("accessToken");
+      updateAuthState();
+      openAuthModal("login");
+      showAuthAlert(message, "danger");
+      showAlert(message, "danger");
+    }
+
+    // View Navigation
+    function switchView(viewName) {
+      document.querySelectorAll(".view-section").forEach(sec => sec.classList.remove("active"));
+      const target = document.getElementById(`view-${viewName}`);
+      if (target) {
+        target.classList.add("active");
+      }
+      hideAlert();
+    }
+
+    // Modal management
+    function openAuthModal(tab = "login") {
+      hideAuthAlert();
+      document.getElementById("auth-modal").classList.add("open");
+      setAuthTab(tab);
+    }
+
+    function closeAuthModal() {
+      document.getElementById("auth-modal").classList.remove("open");
+      hideAuthAlert();
+    }
+
+    function setAuthTab(tab) {
+      hideAuthAlert();
+      const tabLogin = document.getElementById("tab-login");
+      const tabSignup = document.getElementById("tab-signup");
+      const formLogin = document.getElementById("form-login");
+      const formSignup = document.getElementById("form-signup");
+
+      if (tab === "login") {
+        tabLogin.classList.add("active");
+        tabSignup.classList.remove("active");
+        formLogin.style.display = "block";
+        formSignup.style.display = "none";
+      } else {
+        tabSignup.classList.add("active");
+        tabLogin.classList.remove("active");
+        formLogin.style.display = "none";
+        formSignup.style.display = "block";
+      }
+    }
+
+    // =========================================================================
+    // API CALLS: AUTH
+    // =========================================================================
+    async function handleLogin(e) {
+      e.preventDefault();
+      hideAuthAlert();
+      const email = document.getElementById("login-email").value.trim();
+      const password = document.getElementById("login-password").value;
+
+      try {
+        const res = await fetch(`${AUTH_URL}/api/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password })
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          const errorMsg = data.detail || data.message || `Login failed (${res.status})`;
+          showAuthAlert(errorMsg, "danger");
+          return;
+        }
+
+        if (data.accessToken) {
+          authToken = data.accessToken;
+          sessionStorage.setItem("accessToken", authToken);
+          updateAuthState();
+          closeAuthModal();
+          showAlert("Successfully logged in!", "success", 4000);
+          loadPosts(currentPage);
+        } else {
+          showAuthAlert("Login response did not contain an accessToken.", "danger");
+        }
+      } catch (err) {
+        showAuthAlert(`Network error connecting to Auth Service: ${err.message}`, "danger");
+      }
+    }
+
+    async function handleSignup(e) {
+      e.preventDefault();
+      hideAuthAlert();
+      const name = document.getElementById("signup-name").value.trim();
+      const email = document.getElementById("signup-email").value.trim();
+      const password = document.getElementById("signup-password").value;
+
+      try {
+        const res = await fetch(`${AUTH_URL}/api/auth/signup`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, email, password })
+        });
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          const errorMsg = data.detail || data.message || `Signup failed (${res.status})`;
+          showAuthAlert(errorMsg, "danger");
+          return;
+        }
+
+        showAlert("Account created! Please log in with your credentials.", "success", 5000);
+        setAuthTab("login");
+        document.getElementById("login-email").value = email;
+        document.getElementById("login-password").value = "";
+      } catch (err) {
+        showAuthAlert(`Network error connecting to Auth Service: ${err.message}`, "danger");
+      }
+    }
+
+    function handleLogout() {
+      authToken = null;
+      sessionStorage.removeItem("accessToken");
+      updateAuthState();
+      showAlert("You have been logged out.", "info", 4000);
+      loadPosts(currentPage);
+    }
+
+    // =========================================================================
+    // API CALLS: POSTS
+    // =========================================================================
+    async function loadPosts(page = 1) {
+      currentPage = page;
+      const container = document.getElementById("posts-container");
+      container.textContent = "";
+
+      const loadingEl = document.createElement("div");
+      loadingEl.className = "empty-state";
+      loadingEl.textContent = "Loading posts...";
+      container.appendChild(loadingEl);
+
+      try {
+        const res = await fetch(`${BLOG_API_BASE}/api/posts/?page=${page}&limit=${postsPerPage}`);
+        
+        // Update X-Cache Badge
+        // Note: For cross-origin requests, Access-Control-Expose-Headers: X-Cache is required to read this header.
+        const xCache = res.headers.get("x-cache") || res.headers.get("X-Cache");
+        const cacheBadge = document.getElementById("cache-badge");
+        if (xCache) {
+          const upper = xCache.toUpperCase();
+          cacheBadge.textContent = upper;
+          cacheBadge.className = upper === "HIT" ? "badge badge-hit" : "badge badge-miss";
+        } else {
+          cacheBadge.textContent = "N/A";
+          cacheBadge.className = "badge badge-none";
+        }
+
+        if (!res.ok) {
+          container.textContent = "";
+          const errorEl = document.createElement("div");
+          errorEl.className = "empty-state";
+          errorEl.textContent = `Failed to load posts (status ${res.status}).`;
+          container.appendChild(errorEl);
+          return;
+        }
+
+        const data = await res.json();
+        renderPostList(data);
+      } catch (err) {
+        container.textContent = "";
+        const errorEl = document.createElement("div");
+        errorEl.className = "empty-state";
+        errorEl.textContent = `Error loading posts: ${err.message}`;
+        container.appendChild(errorEl);
+      }
+    }
+
+    function renderPostList(data) {
+      const container = document.getElementById("posts-container");
+      container.textContent = "";
+
+      const items = data.items || [];
+      const total = data.total || 0;
+      const totalPages = data.total_pages || Math.ceil(total / postsPerPage) || 1;
+
+      // Update Pagination Controls
+      document.getElementById("pagination-label").textContent = `Page ${currentPage} of ${totalPages || 1}`;
+      document.getElementById("btn-prev-page").disabled = currentPage <= 1;
+      document.getElementById("btn-next-page").disabled = currentPage >= totalPages || items.length === 0;
+
+      if (items.length === 0) {
+        const emptyEl = document.createElement("div");
+        emptyEl.className = "empty-state";
+        emptyEl.textContent = "No posts found. Be the first to create one!";
+        container.appendChild(emptyEl);
+        return;
+      }
+
+      items.forEach(post => {
+        const card = document.createElement("div");
+        card.className = "card";
+
+        const headerDiv = document.createElement("div");
+        headerDiv.className = "post-card-header";
+
+        const titleEl = document.createElement("h3");
+        titleEl.className = "post-card-title";
+        titleEl.textContent = post.title;
+        titleEl.addEventListener("click", () => openPostDetail(post.id));
+        headerDiv.appendChild(titleEl);
+
+        // Delete button if current user is author
+        if (currentUserId !== null && post.author_id === currentUserId) {
+          const delBtn = document.createElement("button");
+          delBtn.className = "btn btn-danger btn-sm";
+          delBtn.textContent = "Delete";
+          delBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            deletePost(post.id);
+          });
+          headerDiv.appendChild(delBtn);
+        }
+
+        card.appendChild(headerDiv);
+
+        const metaEl = document.createElement("div");
+        metaEl.className = "post-card-meta";
+        metaEl.textContent = `Author ID: ${post.author_id} · ${formatDate(post.created_at)}`;
+        card.appendChild(metaEl);
+
+        const bodyEl = document.createElement("div");
+        bodyEl.className = "post-card-content";
+        const snippet = post.content.length > 200 ? post.content.slice(0, 200) + "..." : post.content;
+        bodyEl.textContent = snippet;
+        card.appendChild(bodyEl);
+
+        container.appendChild(card);
+      });
+    }
+
+    // =========================================================================
+    // API CALLS: POST DETAIL, LIKE, COMMENT
+    // =========================================================================
+    async function openPostDetail(postId) {
+      currentDetailPostId = postId;
+      switchView("detail");
+
+      const titleEl = document.getElementById("detail-title");
+      const metaEl = document.getElementById("detail-meta");
+      const contentEl = document.getElementById("detail-content");
+      const deleteSlot = document.getElementById("detail-delete-slot");
+      const commentsContainer = document.getElementById("comments-container");
+      const likeStatusMsg = document.getElementById("like-status-msg");
+
+      likeStatusMsg.textContent = "";
+      deleteSlot.textContent = "";
+      commentsContainer.textContent = "";
+      titleEl.textContent = "Loading post...";
+      metaEl.textContent = "";
+      contentEl.textContent = "";
+
+      try {
+        const res = await fetch(`${BLOG_API_BASE}/api/posts/${postId}`);
+        if (!res.ok) {
+          showAlert(`Failed to fetch post #${postId} (status ${res.status})`, "danger");
+          switchView("posts");
+          return;
+        }
+
+        const post = await res.json();
+        titleEl.textContent = post.title;
+        metaEl.textContent = `Author ID: ${post.author_id} · Created: ${formatDate(post.created_at)}`;
+        contentEl.textContent = post.content;
+
+        // Render Delete button if author
+        if (currentUserId !== null && post.author_id === currentUserId) {
+          const delBtn = document.createElement("button");
+          delBtn.className = "btn btn-danger btn-sm";
+          delBtn.textContent = "Delete Post";
+          delBtn.addEventListener("click", () => deletePost(post.id, true));
+          deleteSlot.appendChild(delBtn);
+        }
+
+        // Fetch like count
+        loadLikeCount(postId);
+
+        // Render comments
+        renderComments(post.comments || []);
+      } catch (err) {
+        showAlert(`Error loading post: ${err.message}`, "danger");
+        switchView("posts");
+      }
+    }
+
+    async function loadLikeCount(postId) {
+      const countEl = document.getElementById("detail-like-count");
+      try {
+        const res = await fetch(`${BLOG_API_BASE}/api/posts/${postId}/likes`);
+        if (res.ok) {
+          const data = await res.json();
+          countEl.textContent = data.like_count ?? 0;
+        }
+      } catch (e) {
+        countEl.textContent = "0";
+      }
+    }
+
+    async function likeCurrentPost() {
+      if (!authToken) {
+        openAuthModal("login");
+        showAuthAlert("Please log in to like posts.", "info");
+        return;
+      }
+
+      const statusMsg = document.getElementById("like-status-msg");
+      statusMsg.textContent = "Liking...";
+
+      try {
+        const res = await fetch(`${BLOG_API_BASE}/api/posts/${currentDetailPostId}/like`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${authToken}`
+          }
+        });
+
+        if (res.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+
+        if (res.status === 409) {
+          statusMsg.textContent = "Already liked";
+          return;
+        }
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          statusMsg.textContent = errData.detail || "Error liking post";
+          return;
+        }
+
+        statusMsg.textContent = "Liked!";
+        loadLikeCount(currentDetailPostId);
+      } catch (err) {
+        statusMsg.textContent = "Network error";
+      }
+    }
+
+    function renderComments(comments) {
+      const container = document.getElementById("comments-container");
+      container.textContent = "";
+      document.getElementById("comment-count-label").textContent = comments.length;
+
+      if (comments.length === 0) {
+        const emptyEl = document.createElement("div");
+        emptyEl.className = "empty-state";
+        emptyEl.style.padding = "1rem 0";
+        emptyEl.textContent = "No comments yet. Write the first comment!";
+        container.appendChild(emptyEl);
+        return;
+      }
+
+      comments.forEach(c => {
+        const card = document.createElement("div");
+        card.className = "comment-card";
+
+        const meta = document.createElement("div");
+        meta.className = "comment-meta";
+        meta.textContent = `User #${c.author_id} · ${formatDate(c.created_at)}`;
+        card.appendChild(meta);
+
+        const content = document.createElement("div");
+        content.className = "comment-content";
+        content.textContent = c.content;
+        card.appendChild(content);
+
+        container.appendChild(card);
+      });
+    }
+
+    async function handleAddComment(e) {
+      e.preventDefault();
+      if (!authToken) {
+        openAuthModal("login");
+        showAuthAlert("Please log in to leave a comment.", "info");
+        return;
+      }
+
+      const input = document.getElementById("comment-input");
+      const content = input.value.trim();
+      if (!content) return;
+
+      const submitBtn = document.getElementById("btn-submit-comment");
+      submitBtn.disabled = true;
+
+      try {
+        const res = await fetch(`${BLOG_API_BASE}/api/posts/${currentDetailPostId}/comments`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ content })
+        });
+
+        if (res.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          showAlert(data.detail || `Failed to post comment (${res.status})`, "danger");
+          return;
+        }
+
+        input.value = "";
+        showAlert("Comment posted!", "success", 3000);
+        // Refresh post detail to show new comment
+        openPostDetail(currentDetailPostId);
+      } catch (err) {
+        showAlert(`Error posting comment: ${err.message}`, "danger");
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    // =========================================================================
+    // API CALLS: CREATE & DELETE POST
+    // =========================================================================
+    async function handleCreatePost(e) {
+      e.preventDefault();
+      if (!authToken) {
+        handleUnauthorized("Please log in to create a post.");
+        return;
+      }
+
+      const title = document.getElementById("post-title").value.trim();
+      const content = document.getElementById("post-content").value.trim();
+      if (!title || !content) return;
+
+      const submitBtn = document.getElementById("btn-submit-post");
+      submitBtn.disabled = true;
+
+      try {
+        const res = await fetch(`${BLOG_API_BASE}/api/posts/`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ title, content })
+        });
+
+        if (res.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+
+        const data = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          showAlert(data.detail || `Failed to create post (${res.status})`, "danger");
+          return;
+        }
+
+        document.getElementById("create-post-form").reset();
+        showAlert("Post published successfully!", "success", 4000);
+        switchView("posts");
+        loadPosts(1);
+      } catch (err) {
+        showAlert(`Error creating post: ${err.message}`, "danger");
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    async function deletePost(postId, fromDetail = false) {
+      if (!authToken) {
+        handleUnauthorized();
+        return;
+      }
+
+      if (!confirm("Are you sure you want to delete this post?")) {
+        return;
+      }
+
+      try {
+        const res = await fetch(`${BLOG_API_BASE}/api/posts/${postId}`, {
+          method: "DELETE",
+          headers: {
+            "Authorization": `Bearer ${authToken}`
+          }
+        });
+
+        if (res.status === 401) {
+          handleUnauthorized();
+          return;
+        }
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          showAlert(errData.detail || `Failed to delete post (${res.status})`, "danger");
+          return;
+        }
+
+        showAlert("Post deleted successfully.", "success", 4000);
+        if (fromDetail) {
+          switchView("posts");
+        }
+        loadPosts(currentPage);
+      } catch (err) {
+        showAlert(`Error deleting post: ${err.message}`, "danger");
+      }
+    }
+
+    // =========================================================================
+    // EVENT LISTENERS & INITIALIZATION
+    // =========================================================================
+    document.addEventListener("DOMContentLoaded", () => {
+      updateAuthState();
+
+      // Brand / Home
+      document.getElementById("brand-home").addEventListener("click", () => {
+        switchView("posts");
+        loadPosts(1);
+      });
+
+      // Auth modal triggers
+      document.getElementById("btn-login-open").addEventListener("click", () => openAuthModal("login"));
+      document.getElementById("btn-signup-open").addEventListener("click", () => openAuthModal("signup"));
+      document.getElementById("btn-close-modal").addEventListener("click", closeAuthModal);
+      document.getElementById("tab-login").addEventListener("click", () => setAuthTab("login"));
+      document.getElementById("tab-signup").addEventListener("click", () => setAuthTab("signup"));
+      document.getElementById("btn-logout").addEventListener("click", handleLogout);
+
+      // Forms
+      document.getElementById("form-login").addEventListener("submit", handleLogin);
+      document.getElementById("form-signup").addEventListener("submit", handleSignup);
+      document.getElementById("create-post-form").addEventListener("submit", handleCreatePost);
+      document.getElementById("comment-form").addEventListener("submit", handleAddComment);
+
+      // Navigation
+      document.getElementById("btn-create-post-nav").addEventListener("click", () => switchView("create"));
+      document.getElementById("btn-cancel-create").addEventListener("click", () => switchView("posts"));
+      document.getElementById("btn-back-to-posts").addEventListener("click", () => switchView("posts"));
+
+      // Post Detail interactions
+      document.getElementById("btn-like-post").addEventListener("click", likeCurrentPost);
+
+      // Pagination
+      document.getElementById("btn-prev-page").addEventListener("click", () => {
+        if (currentPage > 1) loadPosts(currentPage - 1);
+      });
+      document.getElementById("btn-next-page").addEventListener("click", () => {
+        loadPosts(currentPage + 1);
+      });
+
+      // Close modal on outside click
+      document.getElementById("auth-modal").addEventListener("click", (e) => {
+        if (e.target.id === "auth-modal") closeAuthModal();
+      });
+
+      // Initial load
+      loadPosts(1);
+    });
+  </script>
+</body>
+</html>

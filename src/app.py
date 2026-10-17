@@ -1,7 +1,14 @@
 import os
+from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+
+FRONTEND_PATH = Path("frontend/index.html")
+if not FRONTEND_PATH.exists():
+    FRONTEND_PATH = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+
 
 from src.middleware.auth import get_current_user
 from src.routes.posts import router as posts_router
@@ -42,6 +49,10 @@ def health_check():
         "status": "ok",
         "message": "Blog Platform API is running"
     }
+
+@app.get("/app", response_class=FileResponse)
+def serve_frontend():
+    return FileResponse(FRONTEND_PATH, media_type="text/html")
 
 @app.get("/api/auth-test")
 def auth_test(user: dict = Depends(get_current_user)):
