@@ -42,6 +42,20 @@ POSTS_LIST_TTL = 60      # Paginated post list cache: 60 seconds
 POST_ITEM_TTL = 300      # Individual post cache:     300 seconds (5 minutes)
 
 
+def _json_serializer(obj: Any) -> Any:
+    """
+    Helper serializer for objects not natively serializable by json.dumps.
+    Serializes datetimes to ISO 8601 strings and UUIDs/models safely.
+    """
+    if hasattr(obj, "isoformat") and callable(obj.isoformat):
+        return obj.isoformat()
+    if hasattr(obj, "model_dump") and callable(obj.model_dump):
+        return obj.model_dump(mode="json")
+    if hasattr(obj, "dict") and callable(obj.dict):
+        return obj.dict()
+    return str(obj)
+
+
 class CacheService:
     """
     A thin wrapper around the Upstash Redis async client that handles
@@ -61,12 +75,15 @@ class CacheService:
 
         Verified SDK behavior: redis.get() returns a string (the raw
         value stored) or None. We json.loads() to recover the original
-        Python object.
+        Python object. If already deserialized, returns value directly.
         """
         try:
             value = await self.redis.get(key)
             if value is None:
                 return None
+
+            if isinstance(value, (dict, list)):
+                return value
 
             return json.loads(value)
 
@@ -92,7 +109,14 @@ class CacheService:
         Returns True on success, False on failure.
         """
         try:
-            json_value = json.dumps(value, default=str)
+            if hasattr(value, "model_dump") and callable(value.model_dump):
+                value_to_dump = value.model_dump(mode="json")
+            elif hasattr(value, "dict") and callable(value.dict):
+                value_to_dump = value.dict()
+            else:
+                value_to_dump = value
+
+            json_value = json.dumps(value_to_dump, default=_json_serializer)
             if ttl is not None and ttl > 0:
                 await self.redis.set(key, json_value, ex=ttl)
             else:
