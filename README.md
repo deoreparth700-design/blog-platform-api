@@ -2,6 +2,19 @@
 
 A production-style backend REST API for a blog platform built with **FastAPI**, **PostgreSQL (Neon)**, and **Redis (Upstash)**, featuring JWT authentication, ownership-based authorization, cache-aside performance optimization, automated testing, and deployment readiness.
 
+
+## 🌐 Live Demo
+
+The API is deployed on Render. Use these live endpoints to explore and test it:
+
+- **[Interactive API documentation (Swagger)](https://blog-platform-api-db7a.onrender.com/docs)** — browse endpoints and try API requests.
+- **[Health check](https://blog-platform-api-db7a.onrender.com/health)** — confirm the service is running.
+- **[View blog posts](https://blog-platform-api-db7a.onrender.com/api/posts/?page=1&limit=10)** — retrieve a paginated list of posts as JSON.
+- **[Single post example](https://blog-platform-api-db7a.onrender.com/api/posts/87)** — retrieve post details with its comments.
+
+> This is a backend API, not a frontend website. The root URL (`/`) does not serve a homepage; open `/docs` to explore the API.
+
+
 ---
 
 ## 🚀 Project Status
@@ -19,7 +32,7 @@ A production-style backend REST API for a blog platform built with **FastAPI**, 
 | **Step 9** | Cache Invalidation & Multi-Tier TTL Policies | ✅ Completed & Verified |
 | **Step 10** | Automated Testing Suite (pytest + HTTPX) | ✅ Completed & Verified |
 | **Step 11** | Empirical Performance Measurement & Benchmarking | ✅ Completed & Verified |
-| **Step 12** | Deployment Readiness (Render) | ✅ Completed / Deployment-ready for Render |
+| **Step 12** | Render Deployment | ✅ Deployed & Verified |
 
 ### 🔧 Enterprise Hardening & Engineering Upgrades
 
@@ -279,8 +292,6 @@ Median speedup: 16.87x
 
 ## 🚀 Deployment Status
 
-**Deployment-ready for Render**
+**Deployed on Render:** [https://blog-platform-api-db7a.onrender.com](https://blog-platform-api-db7a.onrender.com)
 
-The project is fully prepared for deployment to **Render** using the included `render.yaml` Blueprint.
-
-See [DEPLOYMENT.md](DEPLOYMENT.md) for complete instructions.
+The live health check, posts endpoint, Swagger documentation, and Redis cache HIT behavior have been verified. See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment configuration and verification instructions.
