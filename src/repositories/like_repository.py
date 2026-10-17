@@ -1,12 +1,11 @@
 from typing import Optional
 import asyncpg
-from uuid import UUID
 
 class LikeRepository:
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
 
-    async def create_like(self, post_id: int, user_id: UUID) -> Optional[int]:
+    async def create_like(self, post_id: int, user_id: int) -> Optional[int]:
         query = """
             INSERT INTO likes (post_id, user_id)
             VALUES ($1, $2)
@@ -17,7 +16,7 @@ class LikeRepository:
             row = await connection.fetchrow(query, post_id, user_id)
             return row["post_id"] if row else None
 
-    async def delete_like(self, post_id: int, user_id: UUID) -> bool:
+    async def delete_like(self, post_id: int, user_id: int) -> bool:
         query = """
             DELETE FROM likes
             WHERE post_id = $1 AND user_id = $2
@@ -37,7 +36,7 @@ class LikeRepository:
             count = await connection.fetchval(query, post_id)
             return count
 
-    async def like_exists(self, post_id: int, user_id: UUID) -> bool:
+    async def like_exists(self, post_id: int, user_id: int) -> bool:
         query = """
             SELECT 1
             FROM likes

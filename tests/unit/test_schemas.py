@@ -9,7 +9,6 @@ Valid instances and meaningful invalid inputs (missing required fields, wrong ty
 """
 
 from datetime import datetime, timezone
-from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 
@@ -100,29 +99,29 @@ def test_post_update_valid_partial():
 
 
 def test_post_response_valid():
-    """PostResponse correctly serializes post records including UUIDs and timestamps."""
-    author_uuid = uuid4()
+    """PostResponse correctly serializes post records including integer author_id and timestamps."""
+    author_id = 1
     now = datetime.now(timezone.utc)
     res = PostResponse(
         id=1,
-        author_id=author_uuid,
+        author_id=author_id,
         title="Valid Title",
         content="Valid Content",
         created_at=now,
         updated_at=now,
     )
     assert res.id == 1
-    assert res.author_id == author_uuid
+    assert res.author_id == author_id
     assert res.title == "Valid Title"
 
 
-def test_post_response_invalid_uuid():
-    """PostResponse rejects invalid UUID string for author_id."""
+def test_post_response_invalid_author_id():
+    """PostResponse rejects invalid non-integer author_id."""
     now = datetime.now(timezone.utc)
     with pytest.raises(ValidationError):
         PostResponse(
             id=1,
-            author_id="not-a-valid-uuid",
+            author_id="not-an-int",
             title="Title",
             content="Content",
             created_at=now,
@@ -132,18 +131,18 @@ def test_post_response_invalid_uuid():
 
 def test_post_detail_response_valid():
     """PostDetailResponse includes comments list and defaults to empty list."""
-    author_uuid = uuid4()
+    author_id = 1
     now = datetime.now(timezone.utc)
     comment = CommentResponse(
         id=10,
         post_id=1,
-        author_id=author_uuid,
+        author_id=author_id,
         content="Comment 1",
         created_at=now,
     )
     detail_with_comments = PostDetailResponse(
         id=1,
-        author_id=author_uuid,
+        author_id=author_id,
         title="Title",
         content="Content",
         created_at=now,
@@ -155,7 +154,7 @@ def test_post_detail_response_valid():
 
     detail_empty = PostDetailResponse(
         id=1,
-        author_id=author_uuid,
+        author_id=author_id,
         title="Title",
         content="Content",
         created_at=now,
@@ -166,11 +165,11 @@ def test_post_detail_response_valid():
 
 def test_paginated_post_response_valid():
     """PaginatedPostResponse correctly serializes items and pagination metadata."""
-    author_uuid = uuid4()
+    author_id = 1
     now = datetime.now(timezone.utc)
     item = PostResponse(
         id=1,
-        author_id=author_uuid,
+        author_id=author_id,
         title="Title",
         content="Content",
         created_at=now,
@@ -236,30 +235,30 @@ def test_comment_update_valid():
 
 
 def test_comment_response_valid():
-    """CommentResponse validates author UUID, post ID, and created timestamp."""
-    author_uuid = uuid4()
+    """CommentResponse validates author ID, post ID, and created timestamp."""
+    author_id = 1
     now = datetime.now(timezone.utc)
     res = CommentResponse(
         id=10,
         post_id=5,
-        author_id=author_uuid,
+        author_id=author_id,
         content="Nice post",
         created_at=now,
     )
     assert res.id == 10
     assert res.post_id == 5
-    assert res.author_id == author_uuid
+    assert res.author_id == author_id
     assert res.content == "Nice post"
 
 
 def test_comment_response_invalid_author_id():
-    """CommentResponse rejects invalid author UUID."""
+    """CommentResponse rejects invalid author ID."""
     now = datetime.now(timezone.utc)
     with pytest.raises(ValidationError):
         CommentResponse(
             id=10,
             post_id=5,
-            author_id="invalid-uuid",
+            author_id="invalid-id",
             content="Nice post",
             created_at=now,
         )

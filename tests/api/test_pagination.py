@@ -13,7 +13,6 @@ Tests:
 - deterministic response schema validation (items, page, limit, total, total_pages)
 """
 
-from uuid import UUID
 from datetime import datetime, timezone
 import pytest
 
@@ -25,7 +24,7 @@ from tests.conftest import USER_A_ID
 def make_post(post_id: int):
     return {
         "id": post_id,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "title": f"Post {post_id}",
         "content": f"Content {post_id}",
         "created_at": datetime.now(timezone.utc).isoformat(),

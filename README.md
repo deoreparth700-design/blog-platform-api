@@ -106,7 +106,9 @@ blog-platform-api/
 │   │   ├── db.py                     # asyncpg connection pool & shutdown
 │   │   └── redis.py                  # Upstash Redis client & cleanup
 │   ├── db/
-│   │   └── schema.sql                # Relational DDL schema
+│   │   ├── schema.sql                # Relational DDL schema (integer user IDs)
+│   │   └── migrations/
+│   │       └── 001_user_id_integer.sql # Disposable test migration script
 │   ├── middleware/
 │   │   └── auth.py                   # HTTPBearer & get_current_user
 │   ├── repositories/
@@ -127,7 +129,8 @@ blog-platform-api/
 │   │   ├── comment_service.py        # Comment authorization & logic
 │   │   └── like_service.py           # Like business rules & constraints
 │   ├── utils/
-│   │   └── jwt_utils.py              # JWT token decoding & validation
+│   │   ├── jwt_utils.py              # JWT token decoding & validation
+│   │   └── user_id.py                # User ID validation & parsing helper
 │   ├── app.py                        # FastAPI instance, CORS, lifespan
 │   └── server.py                     # Entrypoint & Uvicorn runner
 ├── tests/
@@ -144,7 +147,8 @@ blog-platform-api/
 │   │   ├── test_schemas.py
 │   │   ├── test_post_service.py
 │   │   ├── test_comment_service.py
-│   │   └── test_like_service.py
+│   │   ├── test_like_service.py
+│   │   └── test_user_id.py
 │   ├── conftest.py                   # Pytest fixtures, JWT isolation, FakeRedis
 │   └── test_infrastructure_smoke.py  # Smoke tests
 ├── .env.example
@@ -219,10 +223,23 @@ Caching is implemented on all post reads with the **cache-aside** pattern and di
 
 ---
 
+## 🔐 Authentication & User Identity Alignment
+
+User identities in this system are managed centrally by the external **Auth Service**:
+- **Integer User IDs**: The Auth Service issues JWTs with `userId` as an integer (`users.id SERIAL`). The Blog Platform API stores `posts.author_id`, `comments.author_id`, and `likes.user_id` as `INTEGER NOT NULL`.
+- **Shared Secret (`JWT_ACCESS_SECRET`)**: The `JWT_ACCESS_SECRET` configuration **must be identical in both the Auth Service and Blog Platform API** for stateless HMAC-SHA256 signature verification to succeed.
+- **Identity Parsing**: Incoming tokens are validated using `parse_user_id(value) -> int`. Tokens with missing, non-numeric, non-integer, or non-positive IDs are rejected with `401 Unauthorized ("Invalid user token")`.
+
+### ⚠️ Database Migration
+For disposable test environments transitioning from legacy schemas, a migration script is provided at [`src/db/migrations/001_user_id_integer.sql`](src/db/migrations/001_user_id_integer.sql) which drops and recreates `likes`, `comments`, and `posts` with integer author/user IDs.
+> **Warning**: *Destroys all existing posts, comments and likes - only use when data is disposable test data.*
+
+---
+
 ## 🧪 Automated Testing
 
-The automated test suite contains **183 automated tests (175 unit & API tests, plus 8 live database integration tests; integration tests are skipped when TEST_DATABASE_URL is not set)**:
-- **175 Unit & API Tests**: Run in ~1.3 seconds with complete isolation from cloud credentials using FakeRedis and mock repositories.
+The automated test suite contains **206 automated tests (198 unit & API tests, plus 8 live database integration tests; integration tests are skipped when TEST_DATABASE_URL is not set)**:
+- **198 Unit & API Tests**: Run in ~1.3 seconds with complete isolation from cloud credentials using FakeRedis and mock repositories.
 - **8 Live Database Integration Tests**: Run against real PostgreSQL in `tests/integration/` (and automatically in GitHub Actions CI via a postgres service container).
 - **JWT Isolation**: Dedicated `TEST_JWT_SECRET` injected via pytest fixtures without mutating the developer environment.
 - **In-Memory FakeRedis**: Full pattern deletion, TTL tracking, and get/set simulation.

@@ -10,7 +10,6 @@ Tests:
 """
 
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID, uuid4
 from datetime import datetime, timezone
 import pytest
 
@@ -37,7 +36,7 @@ async def test_get_post_by_id_single_table_query(mock_pool_and_connection):
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
     
-    author_id = uuid4()
+    author_id = 1
     now = datetime.now(timezone.utc)
     mock_conn.fetchrow.return_value = {
         "id": 1,
@@ -74,8 +73,8 @@ async def test_get_post_with_comments_left_join(mock_pool_and_connection):
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
     
-    author_id = uuid4()
-    commenter_id = uuid4()
+    author_id = 1
+    commenter_id = 2
     now = datetime.now(timezone.utc)
     
     mock_rows = [
@@ -126,7 +125,7 @@ async def test_get_post_with_comments_without_comments_left_join(mock_pool_and_c
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
     
-    author_id = uuid4()
+    author_id = 1
     now = datetime.now(timezone.utc)
     
     mock_rows = [
@@ -173,7 +172,7 @@ async def test_get_posts_feed_first_page_has_more(mock_pool_and_connection):
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
 
-    author_id = uuid4()
+    author_id = 1
     now = datetime.now(timezone.utc)
     mock_rows = [
         {"id": 3, "author_id": author_id, "title": "P3", "content": "C3", "created_at": now, "updated_at": now},
@@ -202,7 +201,7 @@ async def test_get_posts_feed_with_cursor_last_page(mock_pool_and_connection):
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
 
-    author_id = uuid4()
+    author_id = 1
     cursor_dt = datetime.now(timezone.utc)
     mock_rows = [
         {"id": 1, "author_id": author_id, "title": "P1", "content": "C1", "created_at": cursor_dt, "updated_at": cursor_dt},

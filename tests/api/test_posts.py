@@ -33,7 +33,6 @@ Tests:
 """
 
 from unittest.mock import AsyncMock
-from uuid import UUID
 from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException, status
@@ -47,15 +46,16 @@ from tests.conftest import USER_A_ID, USER_B_ID
 # ---------------------------------------------------------------------------
 # Helpers & Fixture Setup
 # ---------------------------------------------------------------------------
-def make_post_payload(post_id: int = 1, author_id: str = USER_A_ID, title: str = "Test Post", content: str = "Test Content"):
+def make_post_payload(post_id: int = 1, author_id: int = USER_A_ID, title: str = "Test Post", content: str = "Test Content"):
     return {
         "id": post_id,
-        "author_id": UUID(author_id),
+        "author_id": author_id,
         "title": title,
         "content": content,
         "created_at": datetime.now(timezone.utc).isoformat(),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ def test_get_post_item_with_comments_miss_then_hit_and_ttl(client, fake_cache_se
     """
     sample = {
         "id": 100,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "title": "Post with Comments",
         "content": "Content with Comments",
         "created_at": datetime.now(timezone.utc),
@@ -181,14 +181,14 @@ def test_get_post_item_with_comments_miss_then_hit_and_ttl(client, fake_cache_se
             {
                 "id": 10,
                 "post_id": 100,
-                "author_id": UUID(USER_B_ID),
+                "author_id": USER_B_ID,
                 "content": "First comment",
                 "created_at": datetime.now(timezone.utc),
             },
             {
                 "id": 11,
                 "post_id": 100,
-                "author_id": UUID(USER_A_ID),
+                "author_id": USER_A_ID,
                 "content": "Second comment",
                 "created_at": datetime.now(timezone.utc),
             },
@@ -243,7 +243,7 @@ def test_get_post_item_with_comments_shape(client, fake_cache_service, mock_post
     """GET /api/posts/{id} returns PostDetailResponse with comments list ordered by created_at, id."""
     sample_with_comments = {
         "id": 1,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "title": "Post with Comments",
         "content": "Content with Comments",
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -252,14 +252,14 @@ def test_get_post_item_with_comments_shape(client, fake_cache_service, mock_post
             {
                 "id": 10,
                 "post_id": 1,
-                "author_id": UUID(USER_B_ID),
+                "author_id": USER_B_ID,
                 "content": "First comment",
                 "created_at": "2026-01-01T10:00:00Z",
             },
             {
                 "id": 11,
                 "post_id": 1,
-                "author_id": UUID(USER_A_ID),
+                "author_id": USER_A_ID,
                 "content": "Second comment",
                 "created_at": "2026-01-01T11:00:00Z",
             },
@@ -285,7 +285,7 @@ def test_get_post_item_empty_comments_returns_empty_list(client, fake_cache_serv
     """GET /api/posts/{id} on post without comments returns comments: []."""
     sample_empty_comments = {
         "id": 2,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "title": "Post without Comments",
         "content": "Content",
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -737,3 +737,47 @@ def test_create_post_invalidates_feed_cache(client, auth_headers, fake_cache_ser
     cached = asyncio.run(fake_cache_service.get(feed_key))
     assert cached is None
 
+
+def test_create_post_token_with_integer_user_id_success(client, fake_cache_service, mock_post_service):
+    """A token with integer userId can create a post (201)."""
+    import time
+    import jwt
+    from tests.conftest import TEST_JWT_SECRET
+    payload = {
+        "userId": 42,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+    }
+    token = jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    mock_post_service.create_post.return_value = make_post_payload(1, author_id=42, title="Int Post", content="Int Content")
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    resp = client.post("/api/posts/", json={"title": "Int Post", "content": "Int Content"}, headers=headers)
+    assert resp.status_code == 201
+    assert resp.json()["author_id"] == 42
+
+
+@pytest.mark.parametrize("invalid_id", ["abc", "not-a-number", None, 3.5, True, -1, 0])
+def test_create_post_token_with_non_numeric_user_id_returns_401_never_500(client, fake_cache_service, mock_post_service, invalid_id):
+    """A token with a non-numeric or invalid userId gets 401, never 500."""
+    import time
+    import jwt
+    from tests.conftest import TEST_JWT_SECRET
+    payload = {
+        "userId": invalid_id,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + 3600,
+    }
+    token = jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    resp = client.post("/api/posts/", json={"title": "Test Post", "content": "Test Content"}, headers=headers)
+    assert resp.status_code == 401
+    assert resp.status_code != 500
+    assert resp.json()["detail"] == "Invalid user token"

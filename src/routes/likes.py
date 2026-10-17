@@ -4,6 +4,7 @@ from src.schemas.like import LikeCountResponse
 from src.services.like_service import LikeService
 from src.config.db import get_pool
 from src.middleware.auth import get_current_user
+from src.utils.user_id import parse_user_id
 
 router = APIRouter()
 
@@ -16,10 +17,7 @@ async def like_post(
     current_user: dict = Depends(get_current_user),
     service: LikeService = Depends(get_like_service)
 ):
-    user_id = current_user.get("userId")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
-    
+    user_id = parse_user_id(current_user.get("userId"))
     return await service.like_post(post_id, user_id)
 
 @router.delete("/posts/{post_id}/like", status_code=status.HTTP_204_NO_CONTENT)
@@ -28,10 +26,7 @@ async def unlike_post(
     current_user: dict = Depends(get_current_user),
     service: LikeService = Depends(get_like_service)
 ):
-    user_id = current_user.get("userId")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
-        
+    user_id = parse_user_id(current_user.get("userId"))
     await service.unlike_post(post_id, user_id)
 
 @router.get("/posts/{post_id}/likes", response_model=LikeCountResponse, status_code=status.HTTP_200_OK)

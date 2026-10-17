@@ -15,6 +15,7 @@ from src.services.cache_service import CacheService, POSTS_LIST_TTL, POST_ITEM_T
 from src.config.db import get_pool
 from src.config.redis import get_redis_client
 from src.middleware.auth import get_current_user
+from src.utils.user_id import parse_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +39,7 @@ async def create_post(
     service: PostService = Depends(get_post_service),
     cache: CacheService = Depends(get_cache_service)
 ):
-    user_id = current_user.get("userId")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
+    user_id = parse_user_id(current_user.get("userId"))
     
     created_post = await service.create_post(user_id, post_data)
     # Step 9: Invalidate post list cache so new post appears on next GET list query
@@ -160,9 +159,7 @@ async def update_post(
     service: PostService = Depends(get_post_service),
     cache: CacheService = Depends(get_cache_service)
 ):
-    user_id = current_user.get("userId")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
+    user_id = parse_user_id(current_user.get("userId"))
         
     updated_post = await service.update_post(post_id, user_id, post_data)
     # Step 9: Invalidate specific post item cache AND list caches
@@ -176,9 +173,7 @@ async def delete_post(
     service: PostService = Depends(get_post_service),
     cache: CacheService = Depends(get_cache_service)
 ):
-    user_id = current_user.get("userId")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
+    user_id = parse_user_id(current_user.get("userId"))
         
     await service.delete_post(post_id, user_id)
     # Step 9: Invalidate specific post item cache AND list caches

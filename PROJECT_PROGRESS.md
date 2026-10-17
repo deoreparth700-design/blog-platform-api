@@ -252,8 +252,8 @@ We implemented the full Posts API utilizing our N-Tier architecture. We created 
 Separating the logic into Routes → Services → Repositories firmly decouples HTTP concerns from SQL logic. This makes the code highly testable and readable. Pydantic was leveraged because it catches malformed client data and returns a `422 Unprocessable Entity` error automatically before our application logic ever runs.
 
 ## How It Works
-The `POST /api/posts` endpoint requires authentication. The route injects the authenticated `userId` and the Pydantic-validated `post_data`. The Service converts the `userId` to a UUID and calls the Repository. The Repository executes an `INSERT ... RETURNING` query via `asyncpg`.
-For `PUT` and `DELETE`, the Service first fetches the post, checks if `post.author_id == UUID(user_id)`. If they match, the repository performs the update/delete. If they don't, the Service halts execution and raises a `403 Forbidden` exception.
+The `POST /api/posts` endpoint requires authentication. The route injects the authenticated `userId` and the Pydantic-validated `post_data`. The Service validates the `userId` as an integer via `parse_user_id` (aligned with the Auth Service) and calls the Repository. The Repository executes an `INSERT ... RETURNING` query via `asyncpg`.
+For `PUT` and `DELETE`, the Service first fetches the post, checks if `post.author_id == parse_user_id(user_id)`. If they match, the repository performs the update/delete. If they don't, the Service halts execution and raises a `403 Forbidden` exception.
 
 ## Request / Data Flow
 Client `PUT /api/posts/{id}` (with JWT)
@@ -267,7 +267,7 @@ Client `PUT /api/posts/{id}` (with JWT)
 → HTTP 200 OK
 
 ## Important Concepts Learned
-- **UUIDs**: Using Universally Unique Identifiers to represent users system-wide.
+- **Integer User Identity**: Aligning user IDs as integers (`INTEGER NOT NULL`) issued by the central Auth Service (`users.id SERIAL`).
 - **Authentication vs Authorization**: JWT proves *who* sent the request; the Service layer proves they are *allowed* to edit the post.
 - **HTTP Status Codes**: Using proper vocabulary (`201 Created`, `204 No Content`, `401 Unauthorized`, `403 Forbidden`, `404 Not Found`, `422 Unprocessable Entity`).
 - **Dynamic SQL Updates**: Constructing safe parameterized queries in the repository when some update fields are optional.
@@ -312,13 +312,13 @@ We implemented the Comments API, mirroring the architecture established in Step 
 We mounted the comments router at `/api` to cleanly map nested URLs (`/api/posts/{post_id}/comments`) without colliding with the existing Posts router. We utilized the database's existing `ON DELETE CASCADE` constraint on the `post_id` foreign key, meaning we did not have to write manual cleanup code—if a post is deleted, PostgreSQL automatically wipes out the associated comments.
 
 ## How It Works
-When creating a comment via `POST /api/posts/{post_id}/comments`, the `CommentService` first explicitly asks the `PostRepository` if the post exists. If it doesn't, it cleanly returns a `404`. If it does, it passes the user's UUID and the comment content to the `CommentRepository` to execute the `INSERT`. When retrieving comments, the SQL query uses `ORDER BY created_at ASC, id ASC` to naturally sort the discussion from oldest to newest.
+When creating a comment via `POST /api/posts/{post_id}/comments`, the `CommentService` first explicitly asks the `PostRepository` if the post exists. If it doesn't, it cleanly returns a `404`. If it does, it passes the user's integer author ID (validated via `parse_user_id`) and the comment content to the `CommentRepository` to execute the `INSERT`. When retrieving comments, the SQL query uses `ORDER BY created_at ASC, id ASC` to naturally sort the discussion from oldest to newest.
 
 ## Request / Data Flow
 Client `POST /api/posts/1/comments` (with JWT)
 → Route extracts `userId` and `CommentCreate` schema
 → Service checks if post #1 exists (404 if not)
-→ Service validates user UUID
+→ Service validates integer user ID (`parse_user_id`)
 → Repository executes parameterized `INSERT`
 → PostgreSQL persists and returns new comment row
 → Route serializes via `CommentResponse` (HTTP 201)
@@ -571,7 +571,7 @@ Upstash Redis was chosen because it provides a serverless, HTTP-based Redis serv
 ## SDK Behavior (upstash-redis 1.8.0 — Verified via Source Inspection)
 Before implementing the cache service, we inspected the SDK source code to understand its exact serialization behavior:
 
-- **`SET` command**: The SDK's `_format_command` function calls `json.dumps()` on any value that is not a `str`, `int`, or `float`. Since our data contains `datetime` and `UUID` objects (not natively JSON-serializable), we must pre-serialize using `json.dumps(value, default=str)` and pass the resulting string to `redis.set()`. The string passes through `_format_command` unchanged (no double serialization).
+- **`SET` command**: The SDK's `_format_command` function calls `json.dumps()` on any value that is not a `str`, `int`, or `float`. Since our data contains non-primitive objects such as `datetime` (not natively JSON-serializable), we must pre-serialize using `json.dumps(value, default=str)` and pass the resulting string to `redis.set()`. The string passes through `_format_command` unchanged (no double serialization).
 - **`GET` command**: `GET` has **no entry** in the SDK's `FORMATTERS` dict (`format.py`). The `cast_response` function returns the raw REST API response result as-is. Since Redis stores strings and the REST response is JSON-parsed, `GET` returns a Python `str` (or `None` for a miss). We must call `json.loads()` on the result to recover the original Python dict/list.
 - **`SET` return value**: The `SET` command is in the `FORMATTERS` dict and uses `format_set` which returns `True` on `"OK"`.
 - **Error handling**: Network errors (DNS failures, timeouts) raise standard Python exceptions, which our `CacheService` catches gracefully.
@@ -640,7 +640,7 @@ Client `GET /api/posts?page=1&limit=5`
 ## Important Concepts Learned
 - **Cache-Aside Pattern**: The application explicitly checks the cache before the database, and populates the cache on a miss. The cache is not automatically synchronized with the database.
 - **X-Cache Header**: A standard HTTP response header that communicates whether a response was served from cache (`HIT`) or from the origin (`MISS`).
-- **JSON Serialization for Redis**: Redis stores strings. Complex Python objects (dicts with datetime/UUID) must be serialized with `json.dumps(default=str)` and deserialized with `json.loads()`.
+- **JSON Serialization for Redis**: Redis stores strings. Complex Python objects (dicts with datetimes or other non-primitives) must be serialized with `json.dumps(default=str)` and deserialized with `json.loads()`.
 - **SDK Source Inspection**: Reading the actual SDK source code (not just documentation) to understand serialization behavior and avoid double-encoding bugs.
 - **Graceful Degradation**: Designing cache failures to be non-fatal — the system falls back to PostgreSQL instead of crashing.
 - **HTTP-Based Redis**: Unlike traditional Redis clients that maintain persistent TCP connections, Upstash's SDK sends stateless HTTPS requests. This simplifies deployment but means each cache operation has HTTP overhead.
@@ -760,7 +760,7 @@ We designed a comprehensive two-tier automated testing architecture using **pyte
    - `test_jwt.py`: Valid, expired, malformed, bad signature, missing `userId`, and unset secret conditions.
    - `test_cache_service.py`: Hits, misses, JSON serialization/deserialization, TTL enforcement (60s list / 300s item), pattern invalidation, fail-open resilience on Redis exceptions, and accurate semantic boolean returns. Fixed semantic bug where `invalidate_post()` was unconditionally returning `True`.
    - `test_schemas.py`: Pydantic model validation, serialization, required fields, and type constraint enforcement across Post, Comment, and Like schemas.
-   - `test_post_service.py`: Real `PostService` tested with mocked `PostRepository`, verifying UUID conversions, ownership checks (403), existence checks (404), pagination math, and error handling.
+   - `test_post_service.py`: Real `PostService` tested with mocked `PostRepository`, verifying integer user ID validation, ownership checks (403), existence checks (404), pagination math, and error handling.
    - `test_comment_service.py`: Real `CommentService` tested with mocked repositories, verifying parent post validation, author authorization, and CRUD flows.
    - `test_like_service.py`: Real `LikeService` tested with mocked repositories, verifying like creation, duplicate rejection (409 Conflict), unliking (404 on absence), and aggregation.
 4. **API Route Test Suite (`tests/api/`)**:
@@ -1098,6 +1098,7 @@ A developer who has built this project can confidently explain:
 | Phase 3 | Keyset Cursor Pagination & Feed Caching | Completed & Verified |
 | Phase 4 | Real PostgreSQL Integration Suite | Completed & Verified |
 | Phase 5 | Benchmark CLI Extension & Documentation Audit | Completed & Verified |
+| Phase 6 | Auth Service Integer User ID Alignment | Completed & Verified |
 
 ==================================================
 
@@ -1120,4 +1121,4 @@ A developer who has built this project can confidently explain:
 - **Phase 3 (Keyset / Cursor Pagination)**: Implemented keyset pagination via `GET /api/posts/feed?limit=10&cursor=<opaque>`. Queried `(created_at, id) < ($1, $2) ORDER BY created_at DESC, id DESC LIMIT $3 + 1` via composite index `idx_posts_created_at_id`. Implemented base64 cursor encoding/decoding (`"created_at_iso|id"`), returning `{items, next_cursor, has_more}`. Integrated Redis caching under `posts:list:cursor:{cursor_or_start}:limit:{limit}` with 60s TTL, automatically purged by `posts:list:*` invalidation. Documented "Offset vs Cursor: When Each Breaks" analysis.
 - **Phase 4 (Real Database Integration Suite)**: Built hermetic integration test suite in `tests/integration/` with safety controls: automatically skips when `TEST_DATABASE_URL` is unset, and aborts with `RuntimeError` if set to production `DATABASE_URL`. Automatically applies `schema.sql` and truncates tables (`RESTART IDENTITY CASCADE`) before each test. Tested 7 end-to-end scenarios including concurrent likes (`asyncio.gather`), pagination, ownership enforcement, cache invalidation, and `ON DELETE CASCADE`. Updated `.github/workflows/tests.yml` with a `postgres:16` service container.
 - **Phase 5 (Benchmark CLI & Documentation Audit)**: Extended `scripts/benchmark_performance.py` with `--post-id` CLI flag to benchmark `GET /api/posts/{id}`. Added results-pending placeholder in `PERFORMANCE.md`. Updated `DEPLOYMENT.md` with post-deployment verification checklist confirming `X-Cache: HIT`. Audited and updated `README.md` and `PROJECT_PROGRESS.md` reflecting 176 total automated tests.
-
+- **Phase 6 (Auth Service Integer User ID Alignment)**: Aligned the Blog Platform API's user identity model with the external Auth Service. The Auth Service issues JWTs with integer user IDs (`userId` as `users.id SERIAL`), which previously caused `AttributeError` when parsed as UUIDs. Updated database schema (`src/db/schema.sql`) to use `INTEGER NOT NULL` for `posts.author_id`, `comments.author_id`, and `likes.user_id`. Created disposable test migration script `src/db/migrations/001_user_id_integer.sql` with data destruction warnings. Built reusable `parse_user_id(value) -> int` helper in `src/utils/user_id.py` enforcing validation (rejects `None`, `bool`, `float`, non-digit strings, and `<= 0` with `401 Unauthorized`). Updated all service layers (`post_service`, `comment_service`, `like_service`), repositories, Pydantic schemas (`PostResponse`, `CommentResponse`), and API route handlers to use integer user IDs and comparisons. Confirmed `JWT_ACCESS_SECRET` must be identical across both services. Updated comprehensive test suite including unit tests for `parse_user_id` and API tests verifying integer token creation (201) and non-numeric token rejection (401, never 500).

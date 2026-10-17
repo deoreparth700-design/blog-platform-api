@@ -17,8 +17,9 @@ import time
 import fnmatch
 from typing import Dict, Tuple, Optional, List, Any
 from datetime import datetime, timezone
-from uuid import UUID
 from unittest.mock import AsyncMock
+
+from src.utils.user_id import parse_user_id
 
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning, message=r".*BlockingPortal.*")
@@ -42,8 +43,8 @@ from src.routes.likes import get_like_service
 # ---------------------------------------------------------------------------
 TEST_JWT_SECRET = "test-only-blog-platform-jwt-secret"
 
-USER_A_ID = "11111111-1111-1111-1111-111111111111"
-USER_B_ID = "22222222-2222-2222-2222-222222222222"
+USER_A_ID = 1
+USER_B_ID = 2
 
 
 @pytest.fixture(autouse=True)
@@ -60,12 +61,12 @@ def isolate_jwt_secret(monkeypatch):
 # Identity & Dynamic JWT Fixtures
 # ---------------------------------------------------------------------------
 @pytest.fixture
-def user_a_id() -> str:
+def user_a_id() -> int:
     return USER_A_ID
 
 
 @pytest.fixture
-def user_b_id() -> str:
+def user_b_id() -> int:
     return USER_B_ID
 
 
@@ -107,6 +108,7 @@ def expired_token(user_a_id) -> str:
         "exp": int(time.time()) - 3600,
     }
     return jwt.encode(payload, TEST_JWT_SECRET, algorithm="HS256")
+
 
 
 @pytest.fixture
@@ -237,10 +239,11 @@ class FakePostService:
         self.posts: Dict[int, dict] = {}
         self.next_id = 1
 
-    async def create_post(self, author_id: str, post_data) -> dict:
+    async def create_post(self, author_id: Any, post_data) -> dict:
+        author_int = parse_user_id(author_id)
         post = {
             "id": self.next_id,
-            "author_id": UUID(author_id) if isinstance(author_id, str) else author_id,
+            "author_id": author_int,
             "title": post_data.title,
             "content": post_data.content,
             "created_at": datetime.now(timezone.utc),
@@ -263,7 +266,7 @@ class FakePostService:
     async def get_post_by_id(self, post_id: int) -> dict:
         return self.posts.get(post_id, {
             "id": post_id,
-            "author_id": UUID(USER_A_ID),
+            "author_id": USER_A_ID,
             "title": f"Post {post_id}",
             "content": "Content",
             "created_at": datetime.now(timezone.utc),
@@ -282,17 +285,18 @@ class FakePostService:
             "has_more": len(items) > limit,
         }
 
-    async def update_post(self, post_id: int, user_id: str, post_data) -> dict:
+    async def update_post(self, post_id: int, user_id: Any, post_data) -> dict:
+        author_int = parse_user_id(user_id)
         return {
             "id": post_id,
-            "author_id": UUID(user_id) if isinstance(user_id, str) else user_id,
+            "author_id": author_int,
             "title": post_data.title or "Updated",
             "content": post_data.content or "Updated Content",
             "created_at": datetime.now(timezone.utc),
             "updated_at": datetime.now(timezone.utc),
         }
 
-    async def delete_post(self, post_id: int, user_id: str) -> bool:
+    async def delete_post(self, post_id: int, user_id: Any) -> bool:
         if post_id in self.posts:
             del self.posts[post_id]
         return True
@@ -328,7 +332,7 @@ def mock_like_service() -> AsyncMock:
 def sample_post_data(user_a_id) -> dict:
     return {
         "id": 1,
-        "author_id": UUID(user_a_id),
+        "author_id": user_a_id,
         "title": "Sample Post Title",
         "content": "Sample Post Content body for testing.",
         "created_at": datetime.now(timezone.utc),
@@ -341,7 +345,7 @@ def sample_comment_data(user_a_id) -> dict:
     return {
         "id": 1,
         "post_id": 1,
-        "author_id": UUID(user_a_id),
+        "author_id": user_a_id,
         "content": "Sample Comment Content.",
         "created_at": datetime.now(timezone.utc),
     }
