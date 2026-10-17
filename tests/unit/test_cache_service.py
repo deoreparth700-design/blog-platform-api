@@ -217,3 +217,55 @@ def test_cache_key_builders():
     assert CacheService.build_post_item_key(1) == "posts:item:1"
     assert CacheService.build_posts_feed_key(None, 10) == "posts:list:cursor:start:limit:10"
     assert CacheService.build_posts_feed_key("abc123cursor", 20) == "posts:list:cursor:abc123cursor:limit:20"
+
+
+@pytest.mark.asyncio
+async def test_json_serialization_datetime_uuid_and_pydantic_model(fake_cache_service):
+    """CacheService.set serializes datetime to ISO 8601, UUID to string, and Pydantic models."""
+    from datetime import datetime, timezone
+    from uuid import UUID
+    from pydantic import BaseModel
+
+    class NestedItem(BaseModel):
+        sub_id: int
+        note: str
+
+    now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    user_uuid = UUID("11111111-1111-1111-1111-111111111111")
+    model_obj = NestedItem(sub_id=42, note="Nested")
+
+    payload = {
+        "id": 1,
+        "author_id": user_uuid,
+        "created_at": now,
+        "model": model_obj,
+    }
+
+    set_ok = await fake_cache_service.set("posts:item:special", payload, ttl=POST_ITEM_TTL)
+    assert set_ok is True
+
+    cached = await fake_cache_service.get("posts:item:special")
+    assert cached is not None
+    assert cached["id"] == 1
+    assert cached["author_id"] == "11111111-1111-1111-1111-111111111111"
+    assert cached["created_at"] == "2026-01-01T12:00:00+00:00"
+    assert cached["model"] == {"sub_id": 42, "note": "Nested"}
+
+
+@pytest.mark.asyncio
+async def test_cache_get_handles_corrupted_json(fake_cache_service, fake_redis):
+    """CacheService.get returns None and logs error when cached value is malformed JSON."""
+    await fake_redis.set("corrupted:key", "{this is not valid json}")
+    result = await fake_cache_service.get("corrupted:key")
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_cache_get_handles_already_parsed_dict_or_list():
+    """CacheService.get directly returns dict or list if redis client returns parsed object."""
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = {"id": 1, "title": "Already Dict"}
+    service = CacheService(mock_redis)
+
+    result = await service.get("parsed:key")
+    assert result == {"id": 1, "title": "Already Dict"}

@@ -15,6 +15,8 @@ import os
 import logging
 from upstash_redis.asyncio import Redis
 
+from dotenv import load_dotenv
+
 logger = logging.getLogger(__name__)
 
 # Global Redis client instance
@@ -35,8 +37,14 @@ def get_redis_client() -> Redis:
     global _redis_client
 
     if _redis_client is None:
+        load_dotenv()
         url = os.environ.get("UPSTASH_REDIS_REST_URL")
         token = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+
+        if url:
+            url = url.strip().strip('"\'')
+        if token:
+            token = token.strip().strip('"\'')
 
         if not url:
             raise ValueError(

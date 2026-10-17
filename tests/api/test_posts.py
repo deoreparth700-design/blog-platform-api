@@ -158,6 +158,67 @@ def test_get_post_item_miss_then_hit_and_ttl(client, fake_cache_service, fake_re
     assert resp2.status_code == 200
     assert resp2.headers.get("X-Cache") == "HIT"
     assert resp2.json()["title"] == "Unique Post"
+    assert resp2.json() == resp1.json()
+    assert mock_post_service.get_post_detail.await_count == 1
+
+
+def test_get_post_item_with_comments_miss_then_hit_and_ttl(client, fake_cache_service, fake_redis, mock_post_service):
+    """
+    GET /api/posts/{id} with nested comments verifies:
+    1. First call: MISS, fetches from DB, caches with 300s TTL (POST_ITEM_TTL), X-Cache: MISS.
+    2. Second call: HIT, served from Redis, X-Cache: HIT.
+    3. JSON payloads match exactly between repeated calls.
+    4. Service awaited only once.
+    """
+    sample = {
+        "id": 100,
+        "author_id": UUID(USER_A_ID),
+        "title": "Post with Comments",
+        "content": "Content with Comments",
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+        "comments": [
+            {
+                "id": 10,
+                "post_id": 100,
+                "author_id": UUID(USER_B_ID),
+                "content": "First comment",
+                "created_at": datetime.now(timezone.utc),
+            },
+            {
+                "id": 11,
+                "post_id": 100,
+                "author_id": UUID(USER_A_ID),
+                "content": "Second comment",
+                "created_at": datetime.now(timezone.utc),
+            },
+        ],
+    }
+    mock_post_service.get_post_detail.return_value = sample
+
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
+
+    # First request: Cold cache -> MISS
+    resp1 = client.get("/api/posts/100")
+    assert resp1.status_code == 200
+    assert resp1.headers.get("X-Cache") == "MISS"
+    data1 = resp1.json()
+    assert data1["id"] == 100
+    assert len(data1["comments"]) == 2
+
+    # Verify TTL in Redis is between 60 and 300 seconds
+    import asyncio
+    item_key = CacheService.build_post_item_key(100)
+    ttl_val = asyncio.run(fake_redis.ttl(item_key))
+    assert 60 < ttl_val <= POST_ITEM_TTL
+
+    # Second request: Warm cache -> HIT
+    resp2 = client.get("/api/posts/100")
+    assert resp2.status_code == 200
+    assert resp2.headers.get("X-Cache") == "HIT"
+    data2 = resp2.json()
+    assert data2 == data1
     assert mock_post_service.get_post_detail.await_count == 1
 
 
@@ -465,6 +526,53 @@ def test_redis_failure_falls_back_to_service_without_crashing(client, mock_post_
     assert resp.status_code == 200
     assert resp.headers.get("X-Cache") == "MISS"
     assert resp.json()["title"] == "DB Post"
+
+
+def test_get_post_item_redis_set_failure_does_not_crash(client, mock_post_service):
+    """
+    When Redis GET succeeds (returns None on miss) but Redis SET raises an error:
+    The response still returns 200 with X-Cache: MISS and the service data, without crashing.
+    """
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = None
+    mock_redis.set.side_effect = ConnectionError("Redis write failed")
+    failing_cache = CacheService(mock_redis)
+
+    sample = make_post_payload(2, title="Set Fail Post")
+    sample["comments"] = []
+    mock_post_service.get_post_detail.return_value = sample
+
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: failing_cache
+
+    resp = client.get("/api/posts/2")
+    assert resp.status_code == 200
+    assert resp.headers.get("X-Cache") == "MISS"
+    assert resp.json()["title"] == "Set Fail Post"
+
+
+def test_get_post_item_corrupted_cached_json_falls_back_to_db(client, mock_post_service):
+    """
+    When Redis contains malformed/corrupted JSON string:
+    CacheService catches the JSONDecodeError, fails open (returns None),
+    and the request falls back cleanly to PostgreSQL with X-Cache: MISS.
+    """
+    mock_redis = AsyncMock()
+    mock_redis.get.return_value = "{corrupted-non-json-content..."
+    mock_redis.set.return_value = True
+    failing_cache = CacheService(mock_redis)
+
+    sample = make_post_payload(3, title="Recovered Post")
+    sample["comments"] = []
+    mock_post_service.get_post_detail.return_value = sample
+
+    app.dependency_overrides[get_post_service] = lambda: mock_post_service
+    app.dependency_overrides[get_cache_service] = lambda: failing_cache
+
+    resp = client.get("/api/posts/3")
+    assert resp.status_code == 200
+    assert resp.headers.get("X-Cache") == "MISS"
+    assert resp.json()["title"] == "Recovered Post"
 
 
 # ---------------------------------------------------------------------------
