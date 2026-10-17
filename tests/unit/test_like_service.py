@@ -4,18 +4,17 @@ Unit Tests for LikeService (src/services/like_service.py).
 Tests the REAL LikeService class with mocked repositories:
 - like existing post
 - like missing post (404)
-- like with invalid user UUID (400)
+- like with invalid user ID (401)
 - duplicate like (409)
 - unlike existing like
 - unlike missing post (404)
 - unlike absent like (404)
-- unlike with invalid user UUID (400)
+- unlike with invalid user ID (401)
 - get like count for existing post
 - get like count for missing post (404)
 """
 
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID
 import pytest
 from fastapi import HTTPException
 
@@ -43,7 +42,7 @@ async def test_like_existing_post(like_service_with_mock_repos):
 
     assert result["message"] == "Post liked"
     assert result["post_id"] == 1
-    like_service_with_mock_repos.repository.create_like.assert_awaited_once_with(1, UUID(USER_A_ID))
+    like_service_with_mock_repos.repository.create_like.assert_awaited_once_with(1, USER_A_ID)
 
 
 @pytest.mark.asyncio
@@ -59,13 +58,13 @@ async def test_like_missing_post(like_service_with_mock_repos):
 
 
 @pytest.mark.asyncio
-async def test_like_invalid_user_uuid(like_service_with_mock_repos):
-    """like_post raises 400 when user ID is not a valid UUID."""
+async def test_like_invalid_user_id(like_service_with_mock_repos):
+    """like_post raises 401 when user ID is not a valid user ID."""
     with pytest.raises(HTTPException) as exc:
-        await like_service_with_mock_repos.like_post(1, "invalid-uuid")
+        await like_service_with_mock_repos.like_post(1, "invalid-id")
 
-    assert exc.value.status_code == 400
-    assert "Invalid user ID format" in exc.value.detail
+    assert exc.value.status_code == 401
+    assert "Invalid user token" in exc.value.detail
 
 
 @pytest.mark.asyncio
@@ -103,7 +102,7 @@ async def test_unlike_existing_like(like_service_with_mock_repos):
 
     await like_service_with_mock_repos.unlike_post(1, USER_A_ID)
 
-    like_service_with_mock_repos.repository.delete_like.assert_awaited_once_with(1, UUID(USER_A_ID))
+    like_service_with_mock_repos.repository.delete_like.assert_awaited_once_with(1, USER_A_ID)
 
 
 @pytest.mark.asyncio
@@ -132,12 +131,14 @@ async def test_unlike_absent_like(like_service_with_mock_repos):
 
 
 @pytest.mark.asyncio
-async def test_unlike_invalid_user_uuid(like_service_with_mock_repos):
-    """unlike_post raises 400 when user ID is invalid UUID."""
+async def test_unlike_invalid_user_id(like_service_with_mock_repos):
+    """unlike_post raises 401 when user ID is invalid."""
     with pytest.raises(HTTPException) as exc:
-        await like_service_with_mock_repos.unlike_post(1, "bad-uuid")
+        await like_service_with_mock_repos.unlike_post(1, "bad-id")
 
-    assert exc.value.status_code == 400
+    assert exc.value.status_code == 401
+    assert "Invalid user token" in exc.value.detail
+
 
 
 @pytest.mark.asyncio

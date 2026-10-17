@@ -1,5 +1,4 @@
-from typing import List, Optional
-from uuid import UUID
+from typing import List, Optional, Any
 from datetime import datetime, timezone
 import base64
 import math
@@ -7,6 +6,7 @@ from fastapi import HTTPException, status
 import asyncpg
 from src.repositories.post_repository import PostRepository
 from src.schemas.post import PostCreate, PostUpdate
+from src.utils.user_id import parse_user_id
 
 def encode_cursor(created_at: datetime, post_id: int) -> str:
     iso_str = created_at.isoformat() if isinstance(created_at, datetime) else str(created_at)
@@ -34,13 +34,9 @@ class PostService:
     def __init__(self, pool: asyncpg.Pool):
         self.repository = PostRepository(pool)
 
-    async def create_post(self, author_id: str, post_data: PostCreate) -> dict:
-        try:
-            author_uuid = UUID(author_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid author ID format")
-
-        return await self.repository.create_post(author_uuid, post_data.title, post_data.content)
+    async def create_post(self, author_id: Any, post_data: PostCreate) -> dict:
+        author_int = parse_user_id(author_id)
+        return await self.repository.create_post(author_int, post_data.title, post_data.content)
 
     async def get_posts(self, page: int = 1, limit: int = 10) -> dict:
         posts, total = await self.repository.get_posts(page, limit)
@@ -88,16 +84,12 @@ class PostService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
         return post
 
-    async def update_post(self, post_id: int, user_id: str, post_data: PostUpdate) -> dict:
+    async def update_post(self, post_id: int, user_id: Any, post_data: PostUpdate) -> dict:
+        user_int = parse_user_id(user_id)
         # First, ensure the post exists and the user owns it
         post = await self.get_post_by_id(post_id)
-        
-        try:
-            user_uuid = UUID(user_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID format")
 
-        if post["author_id"] != user_uuid:
+        if post["author_id"] != user_int:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this post")
 
         updated_post = await self.repository.update_post(post_id, post_data.title, post_data.content)
@@ -106,20 +98,16 @@ class PostService:
             
         return updated_post
 
-    async def delete_post(self, post_id: int, user_id: str) -> bool:
+    async def delete_post(self, post_id: int, user_id: Any) -> bool:
+        user_int = parse_user_id(user_id)
         # First, ensure the post exists and the user owns it
         post = await self.get_post_by_id(post_id)
-        
-        try:
-            user_uuid = UUID(user_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID format")
 
-        if post["author_id"] != user_uuid:
+        if post["author_id"] != user_int:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this post")
 
         deleted = await self.repository.delete_post(post_id)
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
-            
+
         return True

@@ -21,7 +21,6 @@ h. keyset cursor pagination on /api/posts/feed (timestamp ties, feed traversal, 
 import os
 import asyncio
 from datetime import datetime, timezone, timedelta
-from uuid import uuid4
 import pytest
 import httpx
 from src.app import app
@@ -327,7 +326,7 @@ async def test_posts_feed_cursor_pagination_with_timestamp_ties(integration_clie
        - The last page has next_cursor null.
        - A bad cursor returns 400.
     """
-    author_id = uuid4()
+    author_id = 1
     t_shared = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     t_newest = t_shared + timedelta(minutes=10)
     t_older_1 = t_shared - timedelta(minutes=5)

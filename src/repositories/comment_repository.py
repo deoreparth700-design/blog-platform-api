@@ -1,12 +1,11 @@
 from typing import List, Optional
 import asyncpg
-from uuid import UUID
 
 class CommentRepository:
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
 
-    async def create_comment(self, post_id: int, author_id: UUID, content: str) -> dict:
+    async def create_comment(self, post_id: int, author_id: int, content: str) -> dict:
         query = """
             INSERT INTO comments (post_id, author_id, content)
             VALUES ($1, $2, $3)

@@ -7,6 +7,7 @@ from src.services.cache_service import CacheService
 from src.config.db import get_pool
 from src.routes.posts import get_cache_service
 from src.middleware.auth import get_current_user
+from src.utils.user_id import parse_user_id
 
 router = APIRouter()
 
@@ -21,9 +22,7 @@ async def create_comment(
     service: CommentService = Depends(get_comment_service),
     cache: CacheService = Depends(get_cache_service)
 ):
-    user_id = current_user.get("userId")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
+    user_id = parse_user_id(current_user.get("userId"))
     
     created = await service.create_comment(post_id, user_id, comment_data)
     await cache.invalidate_post_item(post_id)
@@ -44,9 +43,7 @@ async def update_comment(
     service: CommentService = Depends(get_comment_service),
     cache: CacheService = Depends(get_cache_service)
 ):
-    user_id = current_user.get("userId")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
+    user_id = parse_user_id(current_user.get("userId"))
         
     updated = await service.update_comment(comment_id, user_id, comment_data)
     post_id = updated.get("post_id") if isinstance(updated, dict) else None
@@ -61,9 +58,7 @@ async def delete_comment(
     service: CommentService = Depends(get_comment_service),
     cache: CacheService = Depends(get_cache_service)
 ):
-    user_id = current_user.get("userId")
-    if not user_id:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid user token")
+    user_id = parse_user_id(current_user.get("userId"))
         
     try:
         comment = await service.get_comment_by_id(comment_id)

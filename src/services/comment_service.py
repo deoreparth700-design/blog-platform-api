@@ -1,28 +1,24 @@
-from typing import List, Optional
-from uuid import UUID
+from typing import List, Optional, Any
 from fastapi import HTTPException, status
 import asyncpg
 from src.repositories.comment_repository import CommentRepository
 from src.repositories.post_repository import PostRepository
 from src.schemas.comment import CommentCreate, CommentUpdate
+from src.utils.user_id import parse_user_id
 
 class CommentService:
     def __init__(self, pool: asyncpg.Pool):
         self.repository = CommentRepository(pool)
         self.post_repository = PostRepository(pool)
 
-    async def create_comment(self, post_id: int, user_id: str, comment_data: CommentCreate) -> dict:
+    async def create_comment(self, post_id: int, user_id: Any, comment_data: CommentCreate) -> dict:
+        author_int = parse_user_id(user_id)
         post = await self.post_repository.get_post_by_id(post_id)
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
-            
-        try:
-            author_uuid = UUID(user_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID format")
 
         try:
-            return await self.repository.create_comment(post_id, author_uuid, comment_data.content)
+            return await self.repository.create_comment(post_id, author_int, comment_data.content)
         except asyncpg.ForeignKeyViolationError:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
 
@@ -39,15 +35,11 @@ class CommentService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
         return comment
 
-    async def update_comment(self, comment_id: int, user_id: str, comment_data: CommentUpdate) -> dict:
+    async def update_comment(self, comment_id: int, user_id: Any, comment_data: CommentUpdate) -> dict:
+        user_int = parse_user_id(user_id)
         comment = await self.get_comment_by_id(comment_id)
-        
-        try:
-            user_uuid = UUID(user_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID format")
 
-        if comment["author_id"] != user_uuid:
+        if comment["author_id"] != user_int:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to update this comment")
 
         updated_comment = await self.repository.update_comment(comment_id, comment_data.content)
@@ -56,19 +48,15 @@ class CommentService:
             
         return updated_comment
 
-    async def delete_comment(self, comment_id: int, user_id: str) -> bool:
+    async def delete_comment(self, comment_id: int, user_id: Any) -> bool:
+        user_int = parse_user_id(user_id)
         comment = await self.get_comment_by_id(comment_id)
-        
-        try:
-            user_uuid = UUID(user_id)
-        except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid user ID format")
 
-        if comment["author_id"] != user_uuid:
+        if comment["author_id"] != user_int:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to delete this comment")
 
         deleted = await self.repository.delete_comment(comment_id)
         if not deleted:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
-            
+
         return True

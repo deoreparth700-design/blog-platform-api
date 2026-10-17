@@ -2,23 +2,22 @@
 Unit Tests for PostService (src/services/post_service.py).
 
 Tests the REAL PostService class with a mocked PostRepository:
-- create with valid UUID
-- create with invalid author UUID (400)
+- create with valid user ID
+- create with invalid author ID (401)
 - get paginated posts and total_pages calculation
 - get existing post
 - get missing post (404)
 - update by owner (success)
 - update by non-owner (403)
-- update with invalid user UUID (400)
+- update with invalid user ID (401)
 - update when repository returns None (404)
 - delete by owner (success)
 - delete by non-owner (403)
-- delete with invalid user UUID (400)
+- delete with invalid user ID (401)
 - delete when repository returns False (404)
 """
 
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID
 from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException
@@ -38,12 +37,12 @@ def post_service_with_mock_repo():
 
 
 @pytest.mark.asyncio
-async def test_create_post_valid_uuid(post_service_with_mock_repo):
-    """create_post parses valid UUID and calls repository.create_post."""
+async def test_create_post_valid_user_id(post_service_with_mock_repo):
+    """create_post parses valid user ID and calls repository.create_post."""
     post_data = PostCreate(title="Test Title", content="Test Content")
     expected_row = {
         "id": 1,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "title": "Test Title",
         "content": "Test Content",
         "created_at": datetime.now(timezone.utc),
@@ -55,19 +54,19 @@ async def test_create_post_valid_uuid(post_service_with_mock_repo):
     assert result["id"] == 1
     assert result["title"] == "Test Title"
     post_service_with_mock_repo.repository.create_post.assert_awaited_once_with(
-        UUID(USER_A_ID), "Test Title", "Test Content"
+        USER_A_ID, "Test Title", "Test Content"
     )
 
 
 @pytest.mark.asyncio
-async def test_create_post_invalid_uuid(post_service_with_mock_repo):
-    """create_post raises 400 when author_id is not a valid UUID."""
+async def test_create_post_invalid_user_id(post_service_with_mock_repo):
+    """create_post raises 401 when author_id is not a valid user ID."""
     post_data = PostCreate(title="Test", content="Test")
     with pytest.raises(HTTPException) as exc:
-        await post_service_with_mock_repo.create_post("invalid-uuid-string", post_data)
+        await post_service_with_mock_repo.create_post("invalid-user-id", post_data)
 
-    assert exc.value.status_code == 400
-    assert "Invalid author ID format" in exc.value.detail
+    assert exc.value.status_code == 401
+    assert "Invalid user token" in exc.value.detail
 
 
 @pytest.mark.asyncio
@@ -115,13 +114,13 @@ async def test_update_post_by_owner(post_service_with_mock_repo):
     """Owner can update their post."""
     existing_post = {
         "id": 1,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "title": "Old Title",
         "content": "Old Content",
     }
     updated_post = {
         "id": 1,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "title": "New Title",
         "content": "New Content",
     }
@@ -142,7 +141,7 @@ async def test_update_post_by_non_owner_forbidden(post_service_with_mock_repo):
     """Non-owner attempting to update post receives 403 Forbidden."""
     existing_post = {
         "id": 1,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "title": "User A Post",
         "content": "Content",
     }
@@ -157,21 +156,22 @@ async def test_update_post_by_non_owner_forbidden(post_service_with_mock_repo):
 
 
 @pytest.mark.asyncio
-async def test_update_post_invalid_user_uuid(post_service_with_mock_repo):
-    """Invalid user UUID raises 400 Bad Request."""
-    existing_post = {"id": 1, "author_id": UUID(USER_A_ID)}
+async def test_update_post_invalid_user_id(post_service_with_mock_repo):
+    """Invalid user ID raises 401 Unauthorized."""
+    existing_post = {"id": 1, "author_id": USER_A_ID}
     post_service_with_mock_repo.repository.get_post_by_id.return_value = existing_post
 
     with pytest.raises(HTTPException) as exc:
-        await post_service_with_mock_repo.update_post(1, "bad-uuid", PostUpdate(title="X"))
+        await post_service_with_mock_repo.update_post(1, "bad-id", PostUpdate(title="X"))
 
-    assert exc.value.status_code == 400
+    assert exc.value.status_code == 401
+    assert "Invalid user token" in exc.value.detail
 
 
 @pytest.mark.asyncio
 async def test_update_post_repository_missing_resource(post_service_with_mock_repo):
     """If repository update returns None (concurrency deletion), raises 404."""
-    existing_post = {"id": 1, "author_id": UUID(USER_A_ID)}
+    existing_post = {"id": 1, "author_id": USER_A_ID}
     post_service_with_mock_repo.repository.get_post_by_id.return_value = existing_post
     post_service_with_mock_repo.repository.update_post.return_value = None
 
@@ -184,7 +184,7 @@ async def test_update_post_repository_missing_resource(post_service_with_mock_re
 @pytest.mark.asyncio
 async def test_delete_post_by_owner(post_service_with_mock_repo):
     """Owner can delete their post."""
-    existing_post = {"id": 1, "author_id": UUID(USER_A_ID)}
+    existing_post = {"id": 1, "author_id": USER_A_ID}
     post_service_with_mock_repo.repository.get_post_by_id.return_value = existing_post
     post_service_with_mock_repo.repository.delete_post.return_value = True
 
@@ -196,7 +196,7 @@ async def test_delete_post_by_owner(post_service_with_mock_repo):
 @pytest.mark.asyncio
 async def test_delete_post_by_non_owner_forbidden(post_service_with_mock_repo):
     """Non-owner attempting to delete post receives 403 Forbidden."""
-    existing_post = {"id": 1, "author_id": UUID(USER_A_ID)}
+    existing_post = {"id": 1, "author_id": USER_A_ID}
     post_service_with_mock_repo.repository.get_post_by_id.return_value = existing_post
 
     with pytest.raises(HTTPException) as exc:
@@ -207,21 +207,22 @@ async def test_delete_post_by_non_owner_forbidden(post_service_with_mock_repo):
 
 
 @pytest.mark.asyncio
-async def test_delete_post_invalid_user_uuid(post_service_with_mock_repo):
-    """delete_post with invalid user UUID raises 400."""
-    existing_post = {"id": 1, "author_id": UUID(USER_A_ID)}
+async def test_delete_post_invalid_user_id(post_service_with_mock_repo):
+    """delete_post with invalid user ID raises 401."""
+    existing_post = {"id": 1, "author_id": USER_A_ID}
     post_service_with_mock_repo.repository.get_post_by_id.return_value = existing_post
 
     with pytest.raises(HTTPException) as exc:
-        await post_service_with_mock_repo.delete_post(1, "bad-uuid")
+        await post_service_with_mock_repo.delete_post(1, "bad-id")
 
-    assert exc.value.status_code == 400
+    assert exc.value.status_code == 401
+    assert "Invalid user token" in exc.value.detail
 
 
 @pytest.mark.asyncio
 async def test_delete_post_repository_returns_false(post_service_with_mock_repo):
     """If repository delete returns False, raises 404."""
-    existing_post = {"id": 1, "author_id": UUID(USER_A_ID)}
+    existing_post = {"id": 1, "author_id": USER_A_ID}
     post_service_with_mock_repo.repository.get_post_by_id.return_value = existing_post
     post_service_with_mock_repo.repository.delete_post.return_value = False
 
@@ -260,13 +261,13 @@ async def test_post_service_update_and_delete_do_not_call_get_post_with_comments
     """PostService update_post and delete_post use lightweight get_post_by_id, NOT get_post_with_comments."""
     post_service_with_mock_repo.repository.get_post_by_id.return_value = {
         "id": 1,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "title": "Old",
         "content": "Old",
     }
     post_service_with_mock_repo.repository.update_post.return_value = {
         "id": 1,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "title": "New",
         "content": "New",
     }
@@ -281,6 +282,7 @@ async def test_post_service_update_and_delete_do_not_call_get_post_with_comments
     await post_service_with_mock_repo.delete_post(1, USER_A_ID)
     post_service_with_mock_repo.repository.get_post_with_comments.assert_not_called()
     assert post_service_with_mock_repo.repository.get_post_by_id.await_count == 2
+
 
 
 def test_encode_decode_cursor_roundtrip():

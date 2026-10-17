@@ -1,13 +1,12 @@
 from typing import List, Optional
 from datetime import datetime
 import asyncpg
-from uuid import UUID
 
 class PostRepository:
     def __init__(self, pool: asyncpg.Pool):
         self.pool = pool
 
-    async def create_post(self, author_id: UUID, title: str, content: str) -> dict:
+    async def create_post(self, author_id: int, title: str, content: str) -> dict:
         query = """
             INSERT INTO posts (author_id, title, content)
             VALUES ($1, $2, $3)

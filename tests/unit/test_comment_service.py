@@ -4,21 +4,20 @@ Unit Tests for CommentService (src/services/comment_service.py).
 Tests the REAL CommentService class with mocked repositories:
 - create comment on existing post
 - create comment on missing post (404)
-- create comment with invalid user UUID (400)
+- create comment with invalid user ID (401)
 - fetch comments for existing post
 - fetch comments for missing parent post (404)
 - update comment by owner (success)
 - update comment by non-owner (403)
 - update missing comment (404)
-- update comment with invalid user UUID (400)
+- update comment with invalid user ID (401)
 - delete comment by owner (success)
 - delete comment by non-owner (403)
 - delete missing comment (404)
-- delete comment with invalid user UUID (400)
+- delete comment with invalid user ID (401)
 """
 
 from unittest.mock import AsyncMock, MagicMock
-from uuid import UUID
 from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException
@@ -45,7 +44,7 @@ async def test_create_comment_on_existing_post(comment_service_with_mock_repos):
     created_comment = {
         "id": 10,
         "post_id": 1,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "content": "Nice post!",
         "created_at": datetime.now(timezone.utc),
     }
@@ -57,7 +56,7 @@ async def test_create_comment_on_existing_post(comment_service_with_mock_repos):
     assert result["id"] == 10
     assert result["content"] == "Nice post!"
     comment_service_with_mock_repos.repository.create_comment.assert_awaited_once_with(
-        1, UUID(USER_A_ID), "Nice post!"
+        1, USER_A_ID, "Nice post!"
     )
 
 
@@ -88,15 +87,15 @@ async def test_create_comment_foreign_key_violation(comment_service_with_mock_re
 
 
 @pytest.mark.asyncio
-async def test_create_comment_invalid_user_uuid(comment_service_with_mock_repos):
-    """create_comment raises 400 when user_id is not a valid UUID."""
+async def test_create_comment_invalid_user_id(comment_service_with_mock_repos):
+    """create_comment raises 401 when user_id is not a valid user ID."""
     comment_service_with_mock_repos.post_repository.get_post_by_id.return_value = {"id": 1}
 
     with pytest.raises(HTTPException) as exc:
-        await comment_service_with_mock_repos.create_comment(1, "bad-uuid", CommentCreate(content="Hello"))
+        await comment_service_with_mock_repos.create_comment(1, "bad-id", CommentCreate(content="Hello"))
 
-    assert exc.value.status_code == 400
-    assert "Invalid user ID format" in exc.value.detail
+    assert exc.value.status_code == 401
+    assert "Invalid user token" in exc.value.detail
 
 
 @pytest.mark.asyncio
@@ -125,8 +124,8 @@ async def test_get_comments_by_post_id_missing_post(comment_service_with_mock_re
 @pytest.mark.asyncio
 async def test_update_comment_by_owner(comment_service_with_mock_repos):
     """Comment owner can update comment."""
-    existing = {"id": 5, "author_id": UUID(USER_A_ID), "content": "Original"}
-    updated = {"id": 5, "author_id": UUID(USER_A_ID), "content": "Edited"}
+    existing = {"id": 5, "author_id": USER_A_ID, "content": "Original"}
+    updated = {"id": 5, "author_id": USER_A_ID, "content": "Edited"}
     comment_service_with_mock_repos.repository.get_comment_by_id.return_value = existing
     comment_service_with_mock_repos.repository.update_comment.return_value = updated
 
@@ -138,7 +137,7 @@ async def test_update_comment_by_owner(comment_service_with_mock_repos):
 @pytest.mark.asyncio
 async def test_update_comment_by_non_owner(comment_service_with_mock_repos):
     """Non-owner receives 403 Forbidden when attempting to update comment."""
-    existing = {"id": 5, "author_id": UUID(USER_A_ID), "content": "Original"}
+    existing = {"id": 5, "author_id": USER_A_ID, "content": "Original"}
     comment_service_with_mock_repos.repository.get_comment_by_id.return_value = existing
 
     with pytest.raises(HTTPException) as exc:
@@ -161,21 +160,22 @@ async def test_update_comment_missing(comment_service_with_mock_repos):
 
 
 @pytest.mark.asyncio
-async def test_update_comment_invalid_user_uuid(comment_service_with_mock_repos):
-    """Updating a comment with invalid user UUID raises 400."""
-    existing = {"id": 5, "author_id": UUID(USER_A_ID), "content": "Original"}
+async def test_update_comment_invalid_user_id(comment_service_with_mock_repos):
+    """Updating a comment with invalid user ID raises 401."""
+    existing = {"id": 5, "author_id": USER_A_ID, "content": "Original"}
     comment_service_with_mock_repos.repository.get_comment_by_id.return_value = existing
 
     with pytest.raises(HTTPException) as exc:
-        await comment_service_with_mock_repos.update_comment(5, "invalid-uuid", CommentUpdate(content="Test"))
+        await comment_service_with_mock_repos.update_comment(5, "invalid-id", CommentUpdate(content="Test"))
 
-    assert exc.value.status_code == 400
+    assert exc.value.status_code == 401
+    assert "Invalid user token" in exc.value.detail
 
 
 @pytest.mark.asyncio
 async def test_delete_comment_by_owner(comment_service_with_mock_repos):
     """Comment owner can delete comment."""
-    existing = {"id": 5, "author_id": UUID(USER_A_ID)}
+    existing = {"id": 5, "author_id": USER_A_ID}
     comment_service_with_mock_repos.repository.get_comment_by_id.return_value = existing
     comment_service_with_mock_repos.repository.delete_comment.return_value = True
 
@@ -187,7 +187,7 @@ async def test_delete_comment_by_owner(comment_service_with_mock_repos):
 @pytest.mark.asyncio
 async def test_delete_comment_by_non_owner(comment_service_with_mock_repos):
     """Non-owner receives 403 Forbidden when attempting to delete comment."""
-    existing = {"id": 5, "author_id": UUID(USER_A_ID)}
+    existing = {"id": 5, "author_id": USER_A_ID}
     comment_service_with_mock_repos.repository.get_comment_by_id.return_value = existing
 
     with pytest.raises(HTTPException) as exc:
@@ -210,15 +210,16 @@ async def test_delete_comment_missing(comment_service_with_mock_repos):
 
 
 @pytest.mark.asyncio
-async def test_delete_comment_invalid_user_uuid(comment_service_with_mock_repos):
-    """Deleting a comment with invalid user UUID raises 400."""
-    existing = {"id": 5, "author_id": UUID(USER_A_ID)}
+async def test_delete_comment_invalid_user_id(comment_service_with_mock_repos):
+    """Deleting a comment with invalid user ID raises 401."""
+    existing = {"id": 5, "author_id": USER_A_ID}
     comment_service_with_mock_repos.repository.get_comment_by_id.return_value = existing
 
     with pytest.raises(HTTPException) as exc:
-        await comment_service_with_mock_repos.delete_comment(5, "not-a-valid-uuid")
+        await comment_service_with_mock_repos.delete_comment(5, "not-a-valid-id")
 
-    assert exc.value.status_code == 400
+    assert exc.value.status_code == 401
+    assert "Invalid user token" in exc.value.detail
 
 
 @pytest.mark.asyncio
@@ -228,7 +229,7 @@ async def test_comment_service_does_not_call_get_post_with_comments(comment_serv
     comment_service_with_mock_repos.repository.create_comment.return_value = {
         "id": 10,
         "post_id": 1,
-        "author_id": UUID(USER_A_ID),
+        "author_id": USER_A_ID,
         "content": "Nice post!",
         "created_at": datetime.now(timezone.utc),
     }
@@ -243,4 +244,3 @@ async def test_comment_service_does_not_call_get_post_with_comments(comment_serv
     await comment_service_with_mock_repos.get_comments_by_post_id(1)
     comment_service_with_mock_repos.post_repository.get_post_with_comments.assert_not_called()
     assert comment_service_with_mock_repos.post_repository.get_post_by_id.await_count == 2
-

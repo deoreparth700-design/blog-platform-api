@@ -26,7 +26,6 @@ Tests:
 """
 
 import asyncio
-from uuid import UUID
 from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException, status
@@ -37,11 +36,11 @@ from src.routes.posts import get_cache_service
 from tests.conftest import USER_A_ID, USER_B_ID
 
 
-def make_comment_payload(comment_id: int = 1, post_id: int = 1, author_id: str = USER_A_ID, content: str = "Test comment"):
+def make_comment_payload(comment_id: int = 1, post_id: int = 1, author_id: int = USER_A_ID, content: str = "Test comment"):
     return {
         "id": comment_id,
         "post_id": post_id,
-        "author_id": UUID(author_id),
+        "author_id": author_id,
         "content": content,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }

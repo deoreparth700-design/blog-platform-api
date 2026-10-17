@@ -28,7 +28,8 @@ Before deploying, ensure you have:
 2. A [Render](https://render.com) account.
 3. A running [Neon PostgreSQL](https://neon.tech) database instance with tables initialized (`scripts/init_db.py`).
 4. An [Upstash Redis](https://upstash.com) database with REST API credentials.
-5. A strong secret key string for JWT verification (`JWT_ACCESS_SECRET`).
+5. A strong secret key string for JWT verification (`JWT_ACCESS_SECRET`). **This secret must be identical to the Auth Service's `JWT_ACCESS_SECRET`** so tokens issued by the Auth Service can be decoded and verified.
+6. User identities originate from the external Auth Service as integers (`users.id SERIAL`).
 
 ---
 
@@ -60,7 +61,7 @@ services:
 3. Select and connect your `blog-platform-api` repository.
 4. Render will parse `render.yaml` and prompt you to input values for the four unsynced environment variables:
    - `DATABASE_URL`: Your full Neon PostgreSQL connection string (including `sslmode=require`).
-   - `JWT_ACCESS_SECRET`: A secure 32+ character random secret string.
+   - `JWT_ACCESS_SECRET`: A secure 32+ character random secret string (**must be identical across both the Auth Service and Blog Platform API**).
    - `UPSTASH_REDIS_REST_URL`: Upstash REST endpoint URL (e.g. `https://xxx.upstash.io`).
    - `UPSTASH_REDIS_REST_TOKEN`: Upstash REST authentication token.
 5. Click **Apply** to deploy the service.
@@ -81,7 +82,7 @@ If you prefer deploying manually without Blueprint:
    - **Start Command**: `uvicorn src.app:app --host 0.0.0.0 --port $PORT`
 4. In the **Environment Variables** section, add the four required variables:
    - `DATABASE_URL`
-   - `JWT_ACCESS_SECRET`
+   - `JWT_ACCESS_SECRET` (identical to Auth Service)
    - `UPSTASH_REDIS_REST_URL`
    - `UPSTASH_REDIS_REST_TOKEN`
 5. Click **Create Web Service**.
@@ -131,24 +132,34 @@ curl -i -H "Authorization: Bearer <YOUR_JWT_TOKEN>" https://your-service.onrende
 ```json
 {
   "authenticated": true,
-  "userId": "<user-uuid>"
+  "userId": 1
 }
 ```
 
 ---
 
-## 5. Application Lifecycle & Hygiene
+## 5. Database Schema & Migration Note
+
+User identities originate from the external Auth Service as integer IDs (`users.id SERIAL`). The Blog Platform API schema (`src/db/schema.sql`) stores `posts.author_id`, `comments.author_id`, and `likes.user_id` as `INTEGER NOT NULL`.
+
+> [!WARNING]
+> **Migration (`src/db/migrations/001_user_id_integer.sql`)**:
+> For existing test environments transitioning from legacy UUID columns to integer user IDs, a disposable migration file is provided at `src/db/migrations/001_user_id_integer.sql`.
+> **Destroys all existing posts, comments and likes - only use when data is disposable test data.**
+
+---
+
+## 6. Application Lifecycle & Hygiene
 
 - **Graceful Shutdown**: The application implements a FastAPI `lifespan` handler that safely releases database connection pool handles (`close_pool()`) and cleans up the Redis client reference on container SIGTERM/SIGINT.
 - **Fail-Open Redis Resilience**: If Upstash Redis experiences transient connection delays or quota exhaustion, CacheService logs the issue and falls back to PostgreSQL without interrupting user traffic.
 
 ---
 
-## 6. Deployment Verification Checklist
+## 7. Deployment Verification Checklist
 
 After deploying the Web Service on Render:
 - [ ] Health check returns 200 OK (`GET /health`).
 - [ ] Interactive OpenAPI documentation loads cleanly (`GET /docs`).
 - [ ] Authenticated token test succeeds with valid Bearer token (`GET /api/auth-test`).
 - [ ] Confirm X-Cache: HIT on the live URL after deploying (first call to `GET /api/posts/?page=1&limit=10` returns `X-Cache: MISS`, second call returns `X-Cache: HIT`).
-

@@ -220,10 +220,9 @@ def test_cache_key_builders():
 
 
 @pytest.mark.asyncio
-async def test_json_serialization_datetime_uuid_and_pydantic_model(fake_cache_service):
-    """CacheService.set serializes datetime to ISO 8601, UUID to string, and Pydantic models."""
+async def test_json_serialization_datetime_integer_author_and_pydantic_model(fake_cache_service):
+    """CacheService.set serializes datetime to ISO 8601, integer author_id, and Pydantic models."""
     from datetime import datetime, timezone
-    from uuid import UUID
     from pydantic import BaseModel
 
     class NestedItem(BaseModel):
@@ -231,12 +230,11 @@ async def test_json_serialization_datetime_uuid_and_pydantic_model(fake_cache_se
         note: str
 
     now = datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-    user_uuid = UUID("11111111-1111-1111-1111-111111111111")
     model_obj = NestedItem(sub_id=42, note="Nested")
 
     payload = {
         "id": 1,
-        "author_id": user_uuid,
+        "author_id": 42,
         "created_at": now,
         "model": model_obj,
     }
@@ -247,9 +245,11 @@ async def test_json_serialization_datetime_uuid_and_pydantic_model(fake_cache_se
     cached = await fake_cache_service.get("posts:item:special")
     assert cached is not None
     assert cached["id"] == 1
-    assert cached["author_id"] == "11111111-1111-1111-1111-111111111111"
+    assert cached["author_id"] == 42
+    assert isinstance(cached["author_id"], int)
     assert cached["created_at"] == "2026-01-01T12:00:00+00:00"
     assert cached["model"] == {"sub_id": 42, "note": "Nested"}
+
 
 
 @pytest.mark.asyncio
