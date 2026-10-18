@@ -204,5 +204,7 @@ Cache MISS rate was 100% on the cold pass and HIT rate 100% on the warm pass for
 
 Subsection "Why the deployed speedup is smaller than the local one": each request from a remote client pays a fixed network round trip to Render (roughly 500 ms in this run). The cache removes the database query (about 350-370 ms, the gap between the cold and warm medians) but cannot remove the network distance. The local-server runs in sections 1-6 exclude that overhead, so they show the server-side effect more clearly (list 18.26x, detail 14.68x). The split between network and server time is an inference from comparing the two runs, not a direct server-side measurement on Render. Region placement of the Render service relative to Neon, Upstash and the client was not tuned or verified.
 
+Post 87 used in these runs was deleted when the production database was reset for the integer user-id migration, so the exact post id will differ if you repeat the benchmark.
+
 
 

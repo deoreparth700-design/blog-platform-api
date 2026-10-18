@@ -5,13 +5,15 @@ A production-style backend REST API for a blog platform built with **FastAPI**, 
 
 ## 🌐 Live Demo
 
+The demo database may be empty on first visit; sign up in /app to create the first post.
+
 The API is deployed on Render. Use these live endpoints to explore and test it:
 
 - **[Interactive API documentation (Swagger)](https://blog-platform-api-db7a.onrender.com/docs)** — browse endpoints and try API requests.
-- **[Live Frontend Demo](https://blog-platform-api-db7a.onrender.com/app?utm_source)** — open the interactive blog UI to browse posts, sign up or log in, create posts, comment, and like.
+- **[Live Frontend Demo](https://blog-platform-api-db7a.onrender.com/app)** — open the interactive blog UI to browse posts, sign up or log in, create posts, comment, and like.
 - **[Health check](https://blog-platform-api-db7a.onrender.com/health)** — confirm the service is running.
 - **[View blog posts](https://blog-platform-api-db7a.onrender.com/api/posts/?page=1&limit=10)** — retrieve a paginated list of posts as JSON.
-- **[Single post example](https://blog-platform-api-db7a.onrender.com/api/posts/87)** — retrieve post details with its comments.
+- **Single post example** — Create a post via /app or Swagger, then open /api/posts/{id}
 
 > Open `/app` for the interactive demo UI and `/docs` to explore interactive API documentation.
 
