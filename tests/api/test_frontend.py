@@ -16,3 +16,13 @@ def test_serve_frontend_endpoint(client):
     assert b"<!DOCTYPE html>" in response.content
     assert b"Blog Platform" in response.content
     assert b"AUTH_URL" in response.content
+    assert b"<dialog" in response.content
+    assert b"Cache" in response.content
+
+
+def test_frontend_dialog_and_cache_elements(client):
+    """GET /app HTML contains native <dialog> elements and the Cache pill."""
+    response = client.get("/app")
+    assert response.status_code == 200
+    assert b"<dialog" in response.content
+    assert b"Cache" in response.content

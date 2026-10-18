@@ -233,10 +233,18 @@ Caching is implemented on all post reads with the **cache-aside** pattern and di
 ## 🖥️ Frontend (Demo UI)
 
 A minimal, single-file demo frontend is served directly by the API at [`/app`](http://localhost:8000/app):
-- **Demo UI**: A lightweight interface built with vanilla HTML, CSS, and JavaScript (no frameworks or build step). It demonstrates registering, logging in, browsing paginated posts, viewing post details and embedded comments, submitting atomic likes (with 409 duplicate rejection), commenting on posts, creating posts, and deleting posts (restricted to the post's author).
-- **Cache Observability**: Displays an `X-Cache` badge (`HIT` / `MISS`) reflecting Upstash Redis performance. *(Note: For cross-origin requests, `Access-Control-Expose-Headers: X-Cache` is required; same-origin requests can read it directly.)*
-- **Auth Service Configuration**: The frontend includes a top-level constant `const AUTH_URL = "http://localhost:8000";` in [`frontend/index.html`](frontend/index.html) configured for local development. Update this constant to your deployed Auth Service URL in production. Blog API requests use same-origin calls (`""`).
-- **Token Storage Trade-off**: The authentication JWT is held in memory and persisted in `sessionStorage` for demo convenience across page reloads. For high-security enterprise production deployments, consider storing tokens in `HttpOnly`, `SameSite`, `Secure` cookies to eliminate XSS token exfiltration risks.
+- **Editorial UI Architecture**: Built as a single-file application with vanilla HTML, CSS, and JavaScript (no external libraries, no frameworks, no CDN dependencies, and no build step). It uses system font stacks (serif stack for article titles and reading content; sans-serif stack for navigational UI elements) and an 8px spacing grid.
+- **Client-Side Hash Routing**: Supports full browser back/forward history and shareable URLs:
+  - `#/`: Home feed with keyset cursor pagination (`GET /api/posts/feed`), skeleton loaders, empty states, and "Load more" button.
+  - `#/post/<id>`: Shareable post view with preserved formatting (`pre-wrap`), atomic like button with state toggle and counts, and embedded comment stream with composition form.
+  - `#/write`: Authenticated publishing view with live character counters matching server validation bounds (title: 200, content: 20,000), disabled submit states while in-flight, and unsaved changes warning before navigation.
+- **Theme Customization**: Responsive light and dark modes adhering to `prefers-color-scheme`, plus an explicit visible toggle persisted safely in `localStorage`. Both themes maintain WCAG AA color contrast (>= 4.5:1).
+- **Native `<dialog>` Modals & Accessibility**: Uses native HTML `<dialog>` elements for authentication (login and signup with tab switching and password visibility toggle) and post deletion confirmations. Features full keyboard navigation, Escape-to-close behavior, and live ARIA status alerts for toasts.
+- **Strict DOM Security**: Fully adheres to strict XSS prevention by never utilizing `innerHTML` with API or user-generated content (all text nodes constructed via `document.createElement` and `textContent`).
+- **Cold-Start Resilience**: Built-in latency observer displays a friendly notification if server wake-up exceeds 4 seconds on free hosting tiers.
+- **Cache Observability**: Displays a `Cache: HIT` / `Cache: MISS` pill in the footer and post views reflecting Upstash Redis performance via the `X-Cache` response header.
+- **Auth Service Configuration**: The frontend includes top-level constants `const AUTH_URL = "https://auth-service-17bm.onrender.com";` and `const BLOG_API_BASE = "";` (same-origin calls) in [`frontend/index.html`](frontend/index.html).
+- **Token Storage Trade-off**: Authentication JWTs are held in memory and persisted in `sessionStorage` for demo convenience across page reloads, with proactive `exp` claim inspection for session expiry. For high-security enterprise production deployments, consider storing tokens in `HttpOnly`, `SameSite`, `Secure` cookies to eliminate client-side token exfiltration risks.
 
 ---
 
