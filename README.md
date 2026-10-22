@@ -132,6 +132,51 @@ There is no `users` table here: user accounts live in the Auth Service, so `auth
 
 ---
 
+## 🐳 Run with Docker Compose
+
+Run the API with local PostgreSQL and Redis using Docker Compose.
+
+**Prerequisite:** Install Docker Desktop and make sure Docker is running.
+
+Create `.env.docker` in the repository root with these local-development values:
+
+```dotenv
+DATABASE_URL=postgresql://blog_user:blog_local_password@postgres:5432/blog_db
+JWT_ACCESS_SECRET=local-development-only-secret-change-before-deployment
+REDIS_URL=redis://redis:6379/0
+TEST_DATABASE_URL=
+```
+
+These are local-only credentials. Do not commit `.env.docker` or use these placeholder secrets in production. Protected endpoints require a JWT signed with the matching `JWT_ACCESS_SECRET`; this API verifies tokens but does not issue them.
+
+Build and start the services:
+
+```bash
+docker compose up --build -d
+docker compose ps
+```
+
+Open [Swagger docs](http://localhost:8000/docs), the [blog UI](http://localhost:8000/app), or the [health check](http://localhost:8000/health). Posts are available at `/api/posts/?page=1&limit=10`; the cursor feed is `/api/posts/feed?limit=10`. The API is published on port `8000`; PostgreSQL and Redis are internal to the Compose network.
+
+View API logs with `docker compose logs -f api`.
+
+### Run tests in Docker
+
+```bash
+docker build -f Dockerfile.test -t blog-platform-api-test:local .
+docker run --rm blog-platform-api-test:local
+```
+
+With the default empty `TEST_DATABASE_URL`, PostgreSQL integration tests are skipped. To run them, configure a separate disposable test database. **Never use a production database:** integration tests truncate their test tables.
+
+### Stop safely
+
+```bash
+docker compose down
+```
+
+This stops and removes the containers and network but preserves the named `blog_postgres_data` volume. Avoid `docker compose down -v` unless you intentionally want to delete the local database data. The schema initialization script runs automatically only when the database volume is first created.
+
 ## 🏗️ Layered Architecture
 
 The application strictly adheres to N-Tier Separation of Concerns:
