@@ -4,3 +4,4 @@ python-dotenv==1.0.1
 asyncpg==0.30.0
 PyJWT==2.10.1
 upstash-redis==1.8.0
+redis==8.1.0
