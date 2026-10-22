@@ -1,5 +1,7 @@
 # Blog Platform API
 
+[![Tests](https://github.com/deoreparth700-design/blog-platform-api/actions/workflows/tests.yml/badge.svg)](https://github.com/deoreparth700-design/blog-platform-api/actions/workflows/tests.yml)
+
 A production-style backend REST API for a blog platform built with **FastAPI**, **PostgreSQL (Neon)**, and **Redis (Upstash)**, featuring JWT authentication, ownership-based authorization, cache-aside performance optimization, automated testing, and deployment readiness.
 
 
@@ -20,7 +22,21 @@ The API is deployed on Render. Use these live endpoints to explore and test it:
 
 ---
 
-## 🚀 Project Status
+## ✨ Highlights
+
+- **JWT-secured REST API** with ownership-based authorization: only a post's or comment's author can edit or delete it (403 otherwise).
+- **Redis cache-aside layer** with separate TTLs and explicit invalidation on every write. Redis failures never break a request; the API falls back to PostgreSQL.
+- **Measured performance gain:** median 1055.98 ms (cache miss) vs 62.58 ms (cache hit), about 16.9x faster in a local benchmark against cloud Neon and Upstash (method and caveats in [PERFORMANCE.md](PERFORMANCE.md)).
+- **Two pagination styles:** offset pages and a keyset (cursor) feed backed by a `(created_at, id)` index.
+- **Atomic likes:** a composite primary key plus `ON CONFLICT DO NOTHING` prevents duplicate likes under concurrent requests.
+- **Tested at two levels:** 205 fast unit/API tests with mocked Redis, plus 8 integration tests against real PostgreSQL that run in GitHub Actions.
+- **Deployed on Render** from a `render.yaml` blueprint, with a small built-in demo UI at `/app`.
+
+---
+
+<details>
+<summary><strong>🚀 Project Status (build milestones)</strong></summary>
+
 
 | Milestone | Scope | Status |
 | :--- | :--- | :--- |
@@ -47,6 +63,8 @@ The API is deployed on Render. Use these live endpoints to explore and test it:
 | **Phase 4** | Real PostgreSQL Integration Suite (`tests/integration/`), DB Isolation & CI Service Container | ✅ Completed & Verified |
 | **Phase 5** | Benchmark CLI Extension (`--post-id`), Checklist Updates & Documentation Audit | ✅ Completed & Verified |
 
+</details>
+
 ---
 
 ## 🛠️ Technology Stack
@@ -62,6 +80,55 @@ The API is deployed on Render. Use these live endpoints to explore and test it:
 - **Deployment**: [Render](https://render.com/) Web Service (`render.yaml` Blueprint)
 
 > **Testing Architecture Note:** While original fullstack specs suggested Jest + Supertest for Node.js backends, this project is natively implemented in FastAPI/Python and uses the Python standard modern stack: **pytest**, **pytest-asyncio**, and **TestClient (HTTPX)**.
+
+---
+
+## ▶️ Run Locally
+
+**Requirements:** Python 3.12, a PostgreSQL database (a free [Neon](https://neon.tech) project works), an [Upstash](https://upstash.com) Redis database, and a JWT secret that matches the one used by the external Auth Service.
+
+```bash
+git clone https://github.com/deoreparth700-design/blog-platform-api.git
+cd blog-platform-api
+
+python -m venv .venv
+source .venv/bin/activate        # Windows PowerShell: .\.venv\Scripts\Activate.ps1
+
+pip install -r requirements.txt
+cp .env.example .env             # Windows PowerShell: Copy-Item .env.example .env
+# open .env and fill in the values from the table below
+
+python scripts/init_db.py        # creates the tables and indexes
+uvicorn src.app:app --reload --port 8000
+```
+
+Then open `http://localhost:8000/docs` (Swagger) or `http://localhost:8000/app` (demo UI).
+
+**Getting a token:** this API does not issue tokens. Sign up or log in through the Auth Service (`https://auth-service-17bm.onrender.com`, or the `/app` UI, which does it for you), then send the access token as `Authorization: Bearer <token>`. For tokens to verify, `JWT_ACCESS_SECRET` here must equal the Auth Service's value.
+
+### Environment Variables
+
+| Variable | Required | Purpose |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | Yes | PostgreSQL connection string (Neon) |
+| `JWT_ACCESS_SECRET` | Yes | Secret used to verify HS256 tokens; must match the Auth Service |
+| `UPSTASH_REDIS_REST_URL` | Yes for caching | Upstash Redis REST endpoint |
+| `UPSTASH_REDIS_REST_TOKEN` | Yes for caching | Upstash Redis REST token |
+| `ALLOWED_ORIGINS` | No | Comma-separated CORS origins. If unset, all origins are allowed (`*`) |
+| `PORT` | No | Port used by `python src/server.py` (default 5000) |
+| `TEST_DATABASE_URL` | Only for integration tests | Separate PostgreSQL database used by `tests/integration/` |
+
+### Database Schema
+
+Three tables, defined in [`src/db/schema.sql`](src/db/schema.sql):
+
+| Table | Key columns | Notes |
+| :--- | :--- | :--- |
+| `posts` | `id`, `author_id`, `title`, `content`, `created_at`, `updated_at` | Index on `(created_at DESC, id DESC)` serves the cursor feed |
+| `comments` | `id`, `post_id`, `author_id`, `content`, `created_at` | `post_id` references `posts` with `ON DELETE CASCADE`; indexed on `post_id` |
+| `likes` | `post_id`, `user_id`, `created_at` | Primary key `(post_id, user_id)` makes duplicates impossible; cascades on post delete |
+
+There is no `users` table here: user accounts live in the Auth Service, so `author_id` and `user_id` are plain integers taken from the verified token, with no foreign key.
 
 ---
 
@@ -155,6 +222,9 @@ blog-platform-api/
 │   │   ├── test_comment_service.py
 │   │   ├── test_like_service.py
 │   │   └── test_user_id.py
+│   ├── integration/                  # Real PostgreSQL end-to-end tests (8)
+│   │   ├── conftest.py               # DB setup and isolation
+│   │   └── test_e2e.py
 │   ├── conftest.py                   # Pytest fixtures, JWT isolation, FakeRedis
 │   └── test_infrastructure_smoke.py  # Smoke tests
 ├── .env.example
@@ -263,8 +333,8 @@ For disposable test environments transitioning from legacy schemas, a migration 
 
 ## 🧪 Automated Testing
 
-The automated test suite contains **212 automated tests (204 unit & API tests, plus 8 live database integration tests; integration tests are skipped when TEST_DATABASE_URL is not set)**:
-- **204 Unit & API Tests**: Run in ~1.3 seconds with complete isolation from cloud credentials using FakeRedis and mock repositories.
+The automated test suite contains **213 tests: 205 unit, API and smoke tests, plus 8 live database integration tests** (the integration tests are skipped when `TEST_DATABASE_URL` is not set):
+- **205 Unit, API & Smoke Tests**: Run in about 1 second with complete isolation from cloud credentials using FakeRedis and mock repositories.
 - **8 Live Database Integration Tests**: Run against real PostgreSQL in `tests/integration/` (and automatically in GitHub Actions CI via a postgres service container).
 - **JWT Isolation**: Dedicated `TEST_JWT_SECRET` injected via pytest fixtures without mutating the developer environment.
 - **In-Memory FakeRedis**: Full pattern deletion, TTL tracking, and get/set simulation.
@@ -329,6 +399,27 @@ Median speedup: 16.87x
 ====================================================
 ```
 *Measurements were obtained from local developer machine + cloud Neon PostgreSQL + cloud Upstash Redis and are not guaranteed production latency. See [PERFORMANCE.md](PERFORMANCE.md) for full statistical breakdown and methodology.*
+
+---
+
+## 🧠 Design Decisions
+
+- **PostgreSQL is the source of truth; Redis is optional.** Every cache call is wrapped so a Redis error is logged and the request continues against the database. A cache outage costs speed, not availability.
+- **Cache-aside with short TTLs.** Lists expire after 60 seconds and single posts after 5 minutes, and every create, update or delete purges the affected keys, so users see their own changes immediately. 404 responses are never cached.
+- **Keyset pagination for the feed.** Offset pages (`?page=`) get slower and can skip or repeat rows as data changes. The `/feed` endpoint instead continues from the last `(created_at, id)` pair, which the composite index serves directly.
+- **Ownership checks live in the service layer**, not in the routes, so the rule (403 for non-authors) is unit-tested without HTTP.
+- **Tokens must carry an expiry.** The JWT decoder requires the `exp` claim and rejects tokens without a valid integer `userId`.
+- **Integration tests refuse to touch production.** If `TEST_DATABASE_URL` equals `DATABASE_URL`, the suite aborts before running.
+
+## ⚠️ Known Limits
+
+- **Coarse cache invalidation.** Any post write clears all list and feed keys, which is simple and correct but not the most efficient for write-heavy workloads.
+- **Authentication is delegated.** There is no signup, login or token refresh in this service, and it depends on the Auth Service sharing the same secret.
+- **No rate limiting** on any endpoint.
+- **CORS is open by default.** Set `ALLOWED_ORIGINS` for a locked-down deployment.
+- **Benchmark numbers are local.** They were measured from a developer laptop against cloud services, not from inside the production environment.
+- **Free-tier cold starts.** The first request after idle time on Render can take several seconds.
+- **Docker is not set up yet.**
 
 ---
 
