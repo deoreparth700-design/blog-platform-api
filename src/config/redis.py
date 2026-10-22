@@ -1,76 +1,76 @@
 """
-Redis Configuration
+Redis configuration supporting local Redis and Upstash REST.
 
-Initializes and manages the Upstash Redis async client.
-Loads credentials from environment variables:
-  - UPSTASH_REDIS_REST_URL
-  - UPSTASH_REDIS_REST_TOKEN
-
-The Upstash Redis Python SDK is HTTP-based (REST over HTTPS),
-so there is no persistent TCP connection or traditional connection pool.
-A single client instance is reused across the application.
+Set REDIS_URL to use a standard Redis server.
+If REDIS_URL is absent, use the existing Upstash REST configuration.
 """
 
 import os
 import logging
-from upstash_redis.asyncio import Redis
+from typing import Any
 
 from dotenv import load_dotenv
+from redis.asyncio import Redis as LocalRedis
+from upstash_redis.asyncio import Redis as UpstashRedis
 
 logger = logging.getLogger(__name__)
 
-# Global Redis client instance
-_redis_client: Redis | None = None
+_redis_client: Any | None = None
+_using_local_redis = False
 
 
-def get_redis_client() -> Redis:
-    """
-    Get the singleton async Redis client.
-
-    On first call, validates that the required environment variables are set
-    and creates the client. Subsequent calls return the same instance.
-
-    Raises:
-        ValueError: If UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN
-                    environment variables are missing.
-    """
-    global _redis_client
+def get_redis_client():
+    """Return the shared local Redis or Upstash client."""
+    global _redis_client, _using_local_redis
 
     if _redis_client is None:
         load_dotenv()
-        url = os.environ.get("UPSTASH_REDIS_REST_URL")
-        token = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
 
-        if url:
-            url = url.strip().strip('"\'')
-        if token:
-            token = token.strip().strip('"\'')
-
-        if not url:
-            raise ValueError(
-                "UPSTASH_REDIS_REST_URL environment variable is not set. "
-                "Please configure your Upstash Redis credentials in .env"
+        redis_url = os.environ.get("REDIS_URL")
+        if redis_url:
+            _redis_client = LocalRedis.from_url(
+                redis_url,
+                decode_responses=True,
             )
-        if not token:
-            raise ValueError(
-                "UPSTASH_REDIS_REST_TOKEN environment variable is not set. "
-                "Please configure your Upstash Redis credentials in .env"
-            )
+            _using_local_redis = True
+            logger.info("Local Redis client initialized")
+        else:
+            url = os.environ.get("UPSTASH_REDIS_REST_URL")
+            token = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
 
-        _redis_client = Redis(url=url, token=token)
-        logger.info("Upstash Redis client initialized successfully")
+            if url:
+                url = url.strip().strip('"\'')
+            if token:
+                token = token.strip().strip('"\'')
+
+            if not url:
+                raise ValueError(
+                    "Set REDIS_URL or UPSTASH_REDIS_REST_URL."
+                )
+            if not token:
+                raise ValueError(
+                    "UPSTASH_REDIS_REST_TOKEN is required when using Upstash."
+                )
+
+            _redis_client = UpstashRedis(url=url, token=token)
+            _using_local_redis = False
+            logger.info("Upstash Redis client initialized")
 
     return _redis_client
 
 
 async def close_redis_client():
-    """
-    Clean up the Redis client reference.
+    """Close local Redis connections and reset the shared client."""
+    global _redis_client, _using_local_redis
 
-    The Upstash SDK is HTTP-based (stateless REST calls), so there is no
-    persistent connection to close. This function resets the global reference
-    for clean application shutdown.
-    """
-    global _redis_client
-    _redis_client = None
+    client = _redis_client
+    using_local = _using_local_redis
+
+    try:
+        if client is not None and using_local:
+            await client.aclose()
+    finally:
+        _redis_client = None
+        _using_local_redis = False
+
     logger.info("Redis client reference cleared")
