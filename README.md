@@ -9,6 +9,8 @@ A production-style backend REST API for a blog platform built with **FastAPI**, 
 
 The demo database may be empty on first visit; sign up in /app to create the first post.
 
+> **How the pieces fit:** the blog UI (`/app`) and the API (`/docs`, `/api/...`) are served by the same Render service. Accounts are not stored here: signing up or logging in from `/app` is handled by a separate Auth Service (`https://auth-service-17bm.onrender.com`), which issues the token this API then verifies. Open `/app` for the frontend.
+
 The API is deployed on Render. Use these live endpoints to explore and test it:
 
 - **[Interactive API documentation (Swagger)](https://blog-platform-api-db7a.onrender.com/docs)** — browse endpoints and try API requests.
@@ -464,7 +466,6 @@ Median speedup: 16.87x
 - **CORS is open by default.** Set `ALLOWED_ORIGINS` for a locked-down deployment.
 - **Benchmark numbers are local.** They were measured from a developer laptop against cloud services, not from inside the production environment.
 - **Free-tier cold starts.** The first request after idle time on Render can take several seconds.
-- **Docker is not set up yet.**
 
 ---
 
