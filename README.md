@@ -108,6 +108,8 @@ Then open `http://localhost:8000/docs` (Swagger) or `http://localhost:8000/app` 
 
 **Getting a token:** this API does not issue tokens. Sign up or log in through the Auth Service (`https://auth-service-17bm.onrender.com`, or the `/app` UI, which does it for you), then send the access token as `Authorization: Bearer <token>`. For tokens to verify, `JWT_ACCESS_SECRET` here must equal the Auth Service's value.
 
+> **Local `/app` and sign-in:** the `/app` UI calls the Auth Service directly from your browser, and the Auth Service only allows requests from the deployed Render URL (its CORS allow-list). On `http://localhost:8000/app` you can browse posts, but sign-up and login will be blocked by the browser. To sign in locally, either use the deployed `/app`, get a token from the Auth Service with an API client and paste it into Swagger (`/docs`, **Authorize**), or add `http://localhost:8000` to `allow_origins` in the Auth Service's `app/app.py` while developing.
+
 ### Environment Variables
 
 | Variable | Required | Purpose |
