@@ -16,15 +16,11 @@ def test_health_check_endpoint(client):
     assert data["message"] == "Blog Platform API is running"
 
 
-def test_cors_headers(client):
-    """CORS preflight or request returns proper allow-origin and credentials policy."""
-    response = client.options(
+def test_cors_disallowed_by_default_when_unset(client):
+    """When ALLOWED_ORIGINS is unset, foreign Origin receives no Access-Control-Allow-Origin header."""
+    response = client.get(
         "/health",
-        headers={
-            "Origin": "http://example.com",
-            "Access-Control-Request-Method": "GET",
-        },
+        headers={"Origin": "http://example.com"},
     )
     assert response.status_code == 200
-    assert response.headers.get("access-control-allow-origin") == "*"
-    assert response.headers.get("access-control-allow-credentials") is None
+    assert "access-control-allow-origin" not in response.headers
