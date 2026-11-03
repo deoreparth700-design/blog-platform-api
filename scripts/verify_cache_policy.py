@@ -1,5 +1,5 @@
 """
-Step 9 -- Cache Invalidation + TTL -- Comprehensive Verification Script
+Cache Invalidation + TTL -- Comprehensive Verification Script
 
 Tests:
  1.  GET /api/posts/?page=1&limit=5 -> first request = MISS
@@ -15,7 +15,7 @@ Tests:
  11. Authentication & Permission checks: 401 on unauthorized mutations, 403 on forbidden mutations
  12. Graceful Redis degradation: CacheService failure fallback (no crashes, returns None/False/0)
 
-Run:  python scripts/verify_step9.py
+Run:  python scripts/verify_cache_policy.py
 Requires:
   - Server running on localhost:5000
 """
@@ -151,7 +151,7 @@ def redis_flushdb():
 def main():
     print("")
     print("=" * 70)
-    print("  Step 9 -- Cache Invalidation + TTL -- Comprehensive Verification")
+    print("  Cache Invalidation + TTL -- Comprehensive Verification")
     print("=" * 70)
 
     if not JWT_TOKEN:
