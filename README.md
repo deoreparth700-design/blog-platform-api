@@ -31,7 +31,7 @@ The API is deployed on Render. Use these live endpoints to explore and test it:
 - **Measured performance gain:** median 1055.98 ms (cache miss) vs 62.58 ms (cache hit), about 16.9x faster in a local benchmark against cloud Neon and Upstash (method and caveats in [PERFORMANCE.md](PERFORMANCE.md)).
 - **Two pagination styles:** offset pages and a keyset (cursor) feed backed by a `(created_at, id)` index.
 - **Atomic likes:** a composite primary key plus `ON CONFLICT DO NOTHING` prevents duplicate likes under concurrent requests.
-- **Tested at two levels:** 205 fast unit/API tests with mocked Redis, plus 8 integration tests against real PostgreSQL that run in GitHub Actions.
+- **Tested at two levels:** 212 fast unit/API tests with mocked Redis, plus 8 integration tests against real PostgreSQL that run in GitHub Actions.
 - **Deployed on Render** from a `render.yaml` blueprint, with a small built-in demo UI at `/app`.
 
 ---
@@ -118,9 +118,17 @@ Then open `http://localhost:8000/docs` (Swagger) or `http://localhost:8000/app` 
 | `JWT_ACCESS_SECRET` | Yes | Secret used to verify HS256 tokens; must match the Auth Service |
 | `UPSTASH_REDIS_REST_URL` | Yes for caching | Upstash Redis REST endpoint |
 | `UPSTASH_REDIS_REST_TOKEN` | Yes for caching | Upstash Redis REST token |
-| `ALLOWED_ORIGINS` | No | Comma-separated CORS origins. If unset, all origins are allowed (`*`) |
+| `ALLOWED_ORIGINS` | No | Comma-separated allowed CORS origins. If unset or empty, cross-origin browser access is disabled |
 | `PORT` | No | Port used by `python src/server.py` (default 5000) |
 | `TEST_DATABASE_URL` | Only for integration tests | Separate PostgreSQL database used by `tests/integration/` |
+
+### CORS Configuration (`ALLOWED_ORIGINS`)
+
+Browser cross-origin requests are controlled via the `ALLOWED_ORIGINS` environment variable:
+- Provide a comma-separated list of trusted origins (e.g. `ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173`).
+- Whitespace around origins and trailing commas are trimmed; empty entries are ignored.
+- **Default (unset or empty):** Cross-origin browser access is completely disallowed (no `Access-Control-Allow-Origin` header is returned).
+- Wildcard (`*`) is supported for public read-only APIs, but credentials (`Access-Control-Allow-Credentials`) are never enabled when wildcard origins are configured.
 
 ### Database Schema
 
@@ -221,7 +229,7 @@ blog-platform-api/
 │   ├── test_connection.py            # DB & Redis connectivity smoke test
 │   ├── verify_redis.py               # Step 8 cache verification
 │   ├── verify_cache_invalidation.py  # Step 9 invalidation verification
-│   └── verify_step9.py               # Comprehensive Step 9 verification
+│   └── verify_cache_policy.py        # Comprehensive cache & TTL verification
 ├── src/
 │   ├── config/
 │   │   ├── db.py                     # asyncpg connection pool & shutdown
@@ -257,6 +265,7 @@ blog-platform-api/
 ├── tests/
 │   ├── api/                          # Route, validation & caching tests
 │   │   ├── test_health.py
+│   │   ├── test_cors.py
 │   │   ├── test_frontend.py
 │   │   ├── test_auth.py
 │   │   ├── test_posts.py
@@ -281,7 +290,6 @@ blog-platform-api/
 ├── .python-version
 ├── DEPLOYMENT.md
 ├── PERFORMANCE.md
-├── PROJECT_PROGRESS.md
 ├── pytest.ini
 ├── render.yaml
 ├── requirements.txt
@@ -382,8 +390,8 @@ For disposable test environments transitioning from legacy schemas, a migration 
 
 ## 🧪 Automated Testing
 
-The automated test suite contains **213 tests: 205 unit, API and smoke tests, plus 8 live database integration tests** (the integration tests are skipped when `TEST_DATABASE_URL` is not set):
-- **205 Unit, API & Smoke Tests**: Run in about 1 second with complete isolation from cloud credentials using FakeRedis and mock repositories.
+The automated test suite contains **220 tests: 212 unit, API and smoke tests, plus 8 live database integration tests** (the integration tests are skipped when `TEST_DATABASE_URL` is not set):
+- **212 Unit, API & Smoke Tests**: Run in about 2 seconds with complete isolation from cloud credentials using FakeRedis and mock repositories.
 - **8 Live Database Integration Tests**: Run against real PostgreSQL in `tests/integration/` (and automatically in GitHub Actions CI via a postgres service container).
 - **JWT Isolation**: Dedicated `TEST_JWT_SECRET` injected via pytest fixtures without mutating the developer environment.
 - **In-Memory FakeRedis**: Full pattern deletion, TTL tracking, and get/set simulation.
@@ -465,7 +473,7 @@ Median speedup: 16.87x
 - **Coarse cache invalidation.** Any post write clears all list and feed keys, which is simple and correct but not the most efficient for write-heavy workloads.
 - **Authentication is delegated.** There is no signup, login or token refresh in this service, and it depends on the Auth Service sharing the same secret.
 - **No rate limiting** on any endpoint.
-- **CORS is open by default.** Set `ALLOWED_ORIGINS` for a locked-down deployment.
+- **CORS is strict by default.** Unset or empty `ALLOWED_ORIGINS` disables all cross-origin browser requests; configure trusted web origins in `ALLOWED_ORIGINS` to allow browser client access.
 - **Benchmark numbers are local.** They were measured from a developer laptop against cloud services, not from inside the production environment.
 - **Free-tier cold starts.** The first request after idle time on Render can take several seconds.
 
