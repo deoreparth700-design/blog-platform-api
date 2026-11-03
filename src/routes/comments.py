@@ -23,7 +23,7 @@ async def create_comment(
     cache: CacheService = Depends(get_cache_service)
 ):
     user_id = parse_user_id(current_user.get("userId"))
-    
+
     created = await service.create_comment(post_id, user_id, comment_data)
     await cache.invalidate_post_item(post_id)
     return created
@@ -44,7 +44,7 @@ async def update_comment(
     cache: CacheService = Depends(get_cache_service)
 ):
     user_id = parse_user_id(current_user.get("userId"))
-        
+
     updated = await service.update_comment(comment_id, user_id, comment_data)
     post_id = updated.get("post_id") if isinstance(updated, dict) else None
     if post_id:
@@ -59,7 +59,7 @@ async def delete_comment(
     cache: CacheService = Depends(get_cache_service)
 ):
     user_id = parse_user_id(current_user.get("userId"))
-        
+
     try:
         comment = await service.get_comment_by_id(comment_id)
         post_id = comment.get("post_id") if isinstance(comment, dict) else None

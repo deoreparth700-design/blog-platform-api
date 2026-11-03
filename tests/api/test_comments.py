@@ -27,13 +27,12 @@ Tests:
 
 import asyncio
 from datetime import datetime, timezone
-import pytest
 from fastapi import HTTPException, status
 
 from src.app import app
 from src.routes.comments import get_comment_service
 from src.routes.posts import get_cache_service
-from tests.conftest import USER_A_ID, USER_B_ID
+from tests.conftest import USER_A_ID
 
 
 def make_comment_payload(comment_id: int = 1, post_id: int = 1, author_id: int = USER_A_ID, content: str = "Test comment"):

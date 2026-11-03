@@ -58,7 +58,7 @@ print("=" * 60)
 try:
     resp = requests.get(f"{BASE_URL}/health")
     test("0. API server health check", resp.status_code == 200 and resp.json().get("status") in ["healthy", "ok"])
-except Exception as e:
+except Exception:
     print(f"\nAPI server unreachable at {BASE_URL}. Ensure server is running!")
     sys.exit(1)
 

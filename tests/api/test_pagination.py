@@ -14,7 +14,6 @@ Tests:
 """
 
 from datetime import datetime, timezone
-import pytest
 
 from src.app import app
 from src.routes.posts import get_post_service, get_cache_service

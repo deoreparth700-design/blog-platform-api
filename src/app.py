@@ -5,17 +5,16 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-FRONTEND_PATH = Path("frontend/index.html")
-if not FRONTEND_PATH.exists():
-    FRONTEND_PATH = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
-
-
 from src.middleware.auth import get_current_user
 from src.routes.posts import router as posts_router
 from src.routes.comments import router as comments_router
 from src.routes.likes import router as likes_router
 from src.config.db import close_pool
 from src.config.redis import close_redis_client
+
+FRONTEND_PATH = Path("frontend/index.html")
+if not FRONTEND_PATH.exists():
+    FRONTEND_PATH = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):

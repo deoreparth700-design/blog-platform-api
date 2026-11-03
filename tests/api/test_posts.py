@@ -91,7 +91,6 @@ def test_get_posts_list_miss_then_hit_and_ttl(client, fake_cache_service, fake_r
 
     # Verify TTL in Redis is <= 60s
     key = CacheService.build_posts_list_key(1, 10)
-    ttl = client.app  # just reference
     import asyncio
     ttl_val = asyncio.run(fake_redis.ttl(key))
     assert 0 < ttl_val <= POSTS_LIST_TTL
@@ -422,7 +421,7 @@ def test_update_post_invalid_body_returns_422(client, auth_headers, fake_cache_s
     app.dependency_overrides[get_post_service] = lambda: mock_post_service
     app.dependency_overrides[get_cache_service] = lambda: fake_cache_service
 
-    resp = client.put("/api/posts/1", json={"title": 12345}, headers=auth_headers)
+    client.put("/api/posts/1", json={"title": 12345}, headers=auth_headers)
     # FastAPI/Pydantic might coerce or reject; if title is int, let's pass a dict or invalid structure
     resp_bad = client.put("/api/posts/1", json="not a dict", headers=auth_headers)
     assert resp_bad.status_code == 422

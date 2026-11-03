@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, List, Optional
 from datetime import datetime
 import asyncpg
 
@@ -75,7 +75,7 @@ class PostRepository:
     async def get_post_with_comments(self, post_id: int) -> Optional[dict]:
         # Note: comments are ordered by created_at, id and are not paginated yet.
         query = """
-            SELECT 
+            SELECT
                 p.id,
                 p.author_id,
                 p.title,
@@ -121,19 +121,19 @@ class PostRepository:
     async def update_post(self, post_id: int, title: Optional[str], content: Optional[str]) -> Optional[dict]:
         # Build the dynamic update query
         updates = []
-        values = []
+        values: list[Any] = []
         if title is not None:
             updates.append(f"title = ${len(values) + 1}")
             values.append(title)
         if content is not None:
             updates.append(f"content = ${len(values) + 1}")
             values.append(content)
-            
+
         if not updates:
             return await self.get_post_by_id(post_id)
 
-        updates.append(f"updated_at = now()")
-        
+        updates.append("updated_at = now()")
+
         query = f"""
             UPDATE posts
             SET {", ".join(updates)}
@@ -141,7 +141,7 @@ class PostRepository:
             RETURNING id, author_id, title, content, created_at, updated_at
         """
         values.append(post_id)
-        
+
         async with self.pool.acquire() as connection:
             row = await connection.fetchrow(query, *values)
             return dict(row) if row else None

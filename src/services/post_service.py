@@ -1,5 +1,5 @@
-from typing import List, Optional, Any
-from datetime import datetime, timezone
+from typing import Optional, Any
+from datetime import datetime
 import base64
 import math
 from fastapi import HTTPException, status
@@ -95,7 +95,7 @@ class PostService:
         updated_post = await self.repository.update_post(post_id, post_data.title, post_data.content)
         if not updated_post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
-            
+
         return updated_post
 
     async def delete_post(self, post_id: int, user_id: Any) -> bool:

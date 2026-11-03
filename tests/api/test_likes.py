@@ -17,7 +17,6 @@ Tests:
   - missing post -> 404
 """
 
-import pytest
 from fastapi import HTTPException, status
 
 from src.app import app

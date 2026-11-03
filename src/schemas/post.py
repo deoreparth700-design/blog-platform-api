@@ -1,6 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional
 from datetime import datetime
+from src.schemas.comment import CommentResponse
 
 class PostBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
@@ -13,14 +14,13 @@ class PostUpdate(BaseModel):
     title: Optional[str] = Field(default=None, min_length=1, max_length=200)
     content: Optional[str] = Field(default=None, min_length=1, max_length=20000)
 
-from src.schemas.comment import CommentResponse
 
 class PostResponse(PostBase):
     id: int
     author_id: int
     created_at: datetime
     updated_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 class PostDetailResponse(PostResponse):

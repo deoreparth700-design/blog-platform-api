@@ -9,7 +9,6 @@ Infrastructure smoke test to validate that:
 import pytest
 from src.app import app
 from src.routes.posts import get_post_service, get_cache_service
-from src.schemas.post import PostCreate
 
 
 def test_testclient_and_health(client):
