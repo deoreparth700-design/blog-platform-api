@@ -25,42 +25,57 @@ async def lifespan(app: FastAPI):
     await close_pool()
     await close_redis_client()
 
-app = FastAPI(lifespan=lifespan)
 
-raw_origins = os.environ.get("ALLOWED_ORIGINS")
-if raw_origins:
-    allowed_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
-else:
-    allowed_origins = ["*"]
+def parse_allowed_origins(raw_origins: str | None) -> list[str]:
+    """Parse comma-separated origins, stripping whitespace and filtering empty entries."""
+    if not raw_origins:
+        return []
+    return [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 
-allow_credentials = False if allowed_origins == ["*"] else True
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=allow_credentials,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def create_app(allowed_origins: list[str] | None = None) -> FastAPI:
+    """Application factory configuring routes and strict CORS policies."""
+    app = FastAPI(lifespan=lifespan)
 
-@app.get("/health")
-def health_check():
-    return {
-        "status": "ok",
-        "message": "Blog Platform API is running"
-    }
+    if allowed_origins is None:
+        raw_origins = os.environ.get("ALLOWED_ORIGINS")
+        allowed_origins = parse_allowed_origins(raw_origins)
 
-@app.get("/app", response_class=FileResponse)
-def serve_frontend():
-    return FileResponse(FRONTEND_PATH, media_type="text/html")
+    # Never combine wildcard "*" with allow_credentials=True
+    allow_credentials = bool(allowed_origins and "*" not in allowed_origins)
 
-@app.get("/api/auth-test")
-def auth_test(user: dict = Depends(get_current_user)):
-    return {
-        "authenticated": True,
-        "userId": user.get("userId")
-    }
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=allow_credentials,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-app.include_router(posts_router, prefix="/api/posts", tags=["posts"])
-app.include_router(comments_router, prefix="/api", tags=["comments"])
-app.include_router(likes_router, prefix="/api", tags=["likes"])
+    @app.get("/health")
+    def health_check():
+        return {
+            "status": "ok",
+            "message": "Blog Platform API is running"
+        }
+
+    @app.get("/app", response_class=FileResponse)
+    def serve_frontend():
+        return FileResponse(FRONTEND_PATH, media_type="text/html")
+
+    @app.get("/api/auth-test")
+    def auth_test(user: dict = Depends(get_current_user)):
+        return {
+            "authenticated": True,
+            "userId": user.get("userId")
+        }
+
+    app.include_router(posts_router, prefix="/api/posts", tags=["posts"])
+    app.include_router(comments_router, prefix="/api", tags=["comments"])
+    app.include_router(likes_router, prefix="/api", tags=["likes"])
+
+    return app
+
+
+app = create_app()
+
