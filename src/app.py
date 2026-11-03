@@ -78,4 +78,3 @@ def create_app(allowed_origins: list[str] | None = None) -> FastAPI:
 
 
 app = create_app()
-
