@@ -20,13 +20,13 @@ from src.repositories.post_repository import PostRepository
 def mock_pool_and_connection():
     dummy_pool = MagicMock()
     mock_conn = AsyncMock()
-    
+
     # Pool acquire context manager returns mock_conn
     mock_acquire_cm = MagicMock()
     mock_acquire_cm.__aenter__ = AsyncMock(return_value=mock_conn)
     mock_acquire_cm.__aexit__ = AsyncMock(return_value=None)
     dummy_pool.acquire.return_value = mock_acquire_cm
-    
+
     return dummy_pool, mock_conn
 
 
@@ -35,7 +35,7 @@ async def test_get_post_by_id_single_table_query(mock_pool_and_connection):
     """get_post_by_id executes lightweight single-table query without JOIN or comments."""
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
-    
+
     author_id = 1
     now = datetime.now(timezone.utc)
     mock_conn.fetchrow.return_value = {
@@ -72,11 +72,11 @@ async def test_get_post_with_comments_left_join(mock_pool_and_connection):
     """get_post_with_comments processes multiple LEFT JOIN rows into a single post with comments list."""
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
-    
+
     author_id = 1
     commenter_id = 2
     now = datetime.now(timezone.utc)
-    
+
     mock_rows = [
         {
             "id": 1,
@@ -124,10 +124,10 @@ async def test_get_post_with_comments_without_comments_left_join(mock_pool_and_c
     """get_post_with_comments skips NULL comment row from LEFT JOIN and returns comments: []."""
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
-    
+
     author_id = 1
     now = datetime.now(timezone.utc)
-    
+
     mock_rows = [
         {
             "id": 2,
@@ -158,7 +158,7 @@ async def test_get_post_with_comments_not_found_returns_none(mock_pool_and_conne
     """get_post_with_comments returns None when query produces no rows."""
     dummy_pool, mock_conn = mock_pool_and_connection
     repo = PostRepository(dummy_pool)
-    
+
     mock_conn.fetch.return_value = []
 
     result = await repo.get_post_with_comments(999)

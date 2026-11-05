@@ -10,7 +10,7 @@ def verify_jwt_token(token: str) -> dict:
             detail="Authentication configuration error",
             headers={"WWW-Authenticate": "Bearer"},
         )
-        
+
     try:
         payload = jwt.decode(
             token,
@@ -18,14 +18,14 @@ def verify_jwt_token(token: str) -> dict:
             algorithms=["HS256"],
             options={"require": ["exp"]}
         )
-        
+
         if "userId" not in payload:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token structure",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-            
+
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(

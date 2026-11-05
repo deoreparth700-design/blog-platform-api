@@ -226,7 +226,7 @@ def main():
     # -- Test 5: Item cache HIT ----------------------------------------
     if post_id:
         print("")
-        print(f"-- Test 5: Same item request  (HIT) --")
+        print("-- Test 5: Same item request  (HIT) --")
         r4 = get(f"/api/posts/{post_id}")
         xcache4 = r4.headers.get("x-cache", "")
         test("X-Cache = HIT", xcache4 == "HIT", f"X-Cache={xcache4!r}")
@@ -235,7 +235,7 @@ def main():
     # -- Test 6: Item TTL = 300s ---------------------------------------
     if post_id:
         print("")
-        print(f"-- Test 6: Redis TTL for item key (300s policy) --")
+        print("-- Test 6: Redis TTL for item key (300s policy) --")
         item_key = f"posts:item:{post_id}"
         ttl_item = redis_ttl(item_key)
         if ttl_item is not None:

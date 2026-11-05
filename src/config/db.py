@@ -15,10 +15,10 @@ async def get_pool() -> asyncpg.Pool:
         database_url = os.environ.get("DATABASE_URL")
         if not database_url:
             raise ValueError("DATABASE_URL environment variable is not set")
-        
+
         # Create connection pool
         pool = await asyncpg.create_pool(database_url)
-    
+
     return pool
 
 async def close_pool():

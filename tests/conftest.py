@@ -21,9 +21,6 @@ from unittest.mock import AsyncMock
 
 from src.utils.user_id import parse_user_id
 
-import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning, message=r".*BlockingPortal.*")
-
 import pytest
 import jwt
 from fastapi.testclient import TestClient
@@ -33,9 +30,10 @@ from src.services.cache_service import CacheService
 from src.services.post_service import PostService
 from src.services.comment_service import CommentService
 from src.services.like_service import LikeService
-from src.routes.posts import get_post_service, get_cache_service
-from src.routes.comments import get_comment_service
-from src.routes.likes import get_like_service
+from src.routes.posts import get_cache_service
+
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning, message=r".*BlockingPortal.*")
 
 
 # ---------------------------------------------------------------------------

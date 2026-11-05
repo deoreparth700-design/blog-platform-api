@@ -1,4 +1,4 @@
-from typing import List, Optional, Any
+from typing import List, Any
 from fastapi import HTTPException, status
 import asyncpg
 from src.repositories.comment_repository import CommentRepository
@@ -26,7 +26,7 @@ class CommentService:
         post = await self.post_repository.get_post_by_id(post_id)
         if not post:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Post not found")
-            
+
         return await self.repository.get_comments_by_post_id(post_id)
 
     async def get_comment_by_id(self, comment_id: int) -> dict:
@@ -45,7 +45,7 @@ class CommentService:
         updated_comment = await self.repository.update_comment(comment_id, comment_data.content)
         if not updated_comment:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
-            
+
         return updated_comment
 
     async def delete_comment(self, comment_id: int, user_id: Any) -> bool:

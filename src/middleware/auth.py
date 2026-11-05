@@ -11,7 +11,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
-        
+
     token = credentials.credentials
     payload = verify_jwt_token(token)
     return payload

@@ -484,3 +484,5 @@ Median speedup: 16.87x
 **Deployed on Render:** [https://blog-platform-api-db7a.onrender.com](https://blog-platform-api-db7a.onrender.com)
 
 The live health check, posts endpoint, Swagger documentation, and Redis cache HIT behavior have been verified. See [DEPLOYMENT.md](DEPLOYMENT.md) for deployment configuration and verification instructions.
+
+License: MIT

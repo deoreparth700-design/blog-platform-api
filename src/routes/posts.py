@@ -1,5 +1,5 @@
-from typing import List, Optional
-from fastapi import APIRouter, Depends, status, HTTPException, Query, Response
+from typing import Optional
+from fastapi import APIRouter, Depends, status, Query, Response
 import asyncpg
 import logging
 from src.schemas.post import (
@@ -40,7 +40,7 @@ async def create_post(
     cache: CacheService = Depends(get_cache_service)
 ):
     user_id = parse_user_id(current_user.get("userId"))
-    
+
     created_post = await service.create_post(user_id, post_data)
     # Step 9: Invalidate post list cache so new post appears on next GET list query
     await cache.invalidate_post_list()
@@ -57,11 +57,11 @@ async def get_posts(
     """
     Cache-aside pattern for paginated post listing.
     TTL: 60 seconds (POSTS_LIST_TTL) — per the project specification.
-    
+
     1. Check Redis for cached result using page+limit as the cache key.
     2. If HIT: return cached data, set X-Cache: HIT.
     3. If MISS: fetch from PostgreSQL, store in cache with 60s TTL, set X-Cache: MISS.
-    
+
     Redis failures fall back gracefully to PostgreSQL.
     """
     cache_key = CacheService.build_posts_list_key(page, limit)
@@ -125,12 +125,12 @@ async def get_post(
     """
     Cache-aside pattern for individual post retrieval.
     TTL: 300 seconds / 5 minutes (POST_ITEM_TTL) — per the project specification.
-    
+
     1. Check Redis for cached post by ID.
     2. If HIT: return cached data, set X-Cache: HIT.
     3. If MISS: fetch from PostgreSQL (raises 404 if not found),
        store in cache with 300s TTL, set X-Cache: MISS.
-    
+
     404 responses are NOT cached — only successful results.
     Redis failures fall back gracefully to PostgreSQL.
     """
@@ -160,7 +160,7 @@ async def update_post(
     cache: CacheService = Depends(get_cache_service)
 ):
     user_id = parse_user_id(current_user.get("userId"))
-        
+
     updated_post = await service.update_post(post_id, user_id, post_data)
     # Step 9: Invalidate specific post item cache AND list caches
     await cache.invalidate_post(post_id)
@@ -174,7 +174,7 @@ async def delete_post(
     cache: CacheService = Depends(get_cache_service)
 ):
     user_id = parse_user_id(current_user.get("userId"))
-        
+
     await service.delete_post(post_id, user_id)
     # Step 9: Invalidate specific post item cache AND list caches
     await cache.invalidate_post(post_id)

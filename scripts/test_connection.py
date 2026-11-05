@@ -9,14 +9,14 @@ from src.config.db import get_pool, close_pool
 
 async def main():
     load_dotenv()
-    
+
     try:
         pool = await get_pool()
-        
+
         async with pool.acquire() as conn:
             # Execute simple query
             server_time = await conn.fetchval('SELECT NOW();')
-            
+
         print("Success: PostgreSQL/Neon is reachable.")
         print(f"Server timestamp: {server_time}")
     except Exception as e:

@@ -39,7 +39,7 @@ class CommentRepository:
     async def update_comment(self, comment_id: int, content: Optional[str]) -> Optional[dict]:
         if content is None:
             return await self.get_comment_by_id(comment_id)
-            
+
         query = """
             UPDATE comments
             SET content = $1

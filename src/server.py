@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.app import app
+from src.app import app  # noqa: E402  # sys.path and environment must be initialized before importing app
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, status
 import asyncpg
 from src.schemas.like import LikeCountResponse
 from src.services.like_service import LikeService

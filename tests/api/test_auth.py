@@ -14,7 +14,7 @@ Uses the REAL get_current_user dependency without mocking authentication.
 
 import time
 import jwt
-from tests.conftest import TEST_JWT_SECRET, USER_A_ID, USER_B_ID
+from tests.conftest import USER_A_ID, USER_B_ID
 
 
 def test_auth_missing_token_returns_401(client):
